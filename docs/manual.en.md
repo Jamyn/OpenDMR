@@ -499,9 +499,11 @@ new PIN, 4 - 6 digits, twice), **Change PIN** sets another one (for both).
 - While the radio waits for the PIN or is locked with the lock PIN, the cable answers nothing: no CPS, no firmware
   update, no hotspot. The CPS can't change the PINs, and a firmware update keeps them.
 - Five wrong PINs in a row: wait 30 s before the next try.
-- **Don't forget the PIN, and keep a backup of your codeplug** (CPS: read, save the file). A forgotten PIN can only
-  be cleared with `tools/debug/pin_wipe.py --port COMx --yes`, which **erases the codeplug, the settings and the
-  PIN**: the radio restarts empty, then write the codeplug again from the backup.
+- **Don't forget the PIN.** A forgotten PIN can only be cleared through the chip's bootloader: switch the radio
+  off, run `tools/debug/pin_wipe.py COMx`, switch the radio on (no key) within 30 s. It clears the PIN only (the
+  codeplug and the settings stay); switch the radio off and on.
+- The PINs keep the radio from being used. They don't keep its flash from being read: the chip's bootloader reads
+  the whole flash for anyone with the cable and a tool.
 
 ### Quick keys (SK2 + digit)
 

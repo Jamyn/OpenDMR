@@ -34,8 +34,8 @@
 
 // The power-on PIN and the lock PIN (both off by default): one PIN, 4 - 6 digits, kept by the firmware (the CPS
 // can't change it). While secured (the power-on PIN not entered yet, or locked with the lock PIN) the cable link
-// answers nothing but the wipe command (tools/debug/pin_wipe.py): the way back from a forgotten PIN, which erases
-// the codeplug and the settings with it. A firmware update keeps the PINs.
+// answers nothing. A forgotten PIN: tools/debug/pin_wipe.py through the chip's bootloader (it clears the PIN only).
+// A firmware update keeps the PINs.
 #define SECURITY_PIN_MIN 4
 #define SECURITY_PIN_MAX 6
 
@@ -54,7 +54,6 @@ void security_set_lock_pin(bool on);
 // hotspot doesn't start, the VOX doesn't transmit
 bool security_secured(void);
 
-bool security_wipe(void);                                            // the codeplug, the settings and the PIN erased
 void security_keep_block(uint32_t sector_address, uint8_t *sector); // a CPS sector write keeps the PINs
 
 // The radio waits for the power-on PIN (set at start, cleared by the PIN screen)

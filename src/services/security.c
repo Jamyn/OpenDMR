@@ -31,35 +31,43 @@
  *
  * Both switches and the PIN are ours, in a block after the settings (their flash sector, behind the main firmware's
  * settings_t: 0x604B - 0x60B6). The CPS can't change it: its sector writes keep the block (security_keep_block()),
- * and while the radio is secured the cable link answers nothing. A firmware update keeps it too.
+ * and while the radio is secured the cable link answers nothing at all. A firmware update keeps it too.
  *
- * A forgotten PIN: only the wipe command of tools/debug/pin_wipe.py, which the cable link takes also while secured.
- * It erases the user data with the PIN (WIPE_SIZE from the start of the window: the codeplug, the settings, the
- * custom data, this block), so the radio comes back empty: a found or stolen radio gives nothing away. The factory
- * calibration and the Chinese font are below the window, never touched.
+ * A forgotten PIN: tools/debug/pin_wipe.py, through the chip's bootloader at power on (not this firmware): it blanks
+ * this block only, the codeplug and the settings stay. Note that the bootloader reads and writes
+ * the whole data flash for anyone with the cable (tools/backup/dm32_dump.py): the PINs keep the radio from being
+ * used, not its flash from being read.
  */
 
 #include <string.h>
 #include "flash.h"
 #include "systime.h"
+#include "datetime.h"
 #include "security.h"
 
-#define ADDRESS   0x6100     // our block, in the data flash window
-#define MAGIC     0x344E4950 // "PIN4"
-#define WIPE_SIZE 0x100000   // the codeplug (EEPROM part and flash part), the settings, the custom data
+#define ADDRESS     0x6100     // our block, in the data flash window (tools/debug/pin_wipe.py: 24 bytes)
+#define MAGIC       0x354E4950 // "PIN5"
+#define HASH_ROUNDS 4096       // a few ms; with 4 - 6 digits a dump of the flash is guessed anyway: not in clear
 
 #define FLAG_BOOT 0x01
 #define FLAG_LOCK 0x02
 
+// The PIN is not kept: an iterated FNV-1a 64 of its digits, a random salt and this radio's flash ID (the block
+// copied to another radio doesn't verify there)
 typedef struct {
     uint32_t magic;
     uint8_t flags;
-    uint8_t length; // of the PIN; 0: none
+    uint8_t set; // a PIN is there
     uint8_t reserved[2];
-    char pin[SECURITY_PIN_MAX];
+    uint32_t salt;
+    uint32_t reserved2;
+    uint64_t hash;
 } block_t;
 
+_Static_assert(sizeof(block_t) == 24, "tools/debug/pin_wipe.py blanks 24 bytes");
+
 static block_t block;
+static uint64_t radio_id; // flash_unique_id()
 static volatile bool boot_locked = false;
 static volatile bool locked = false;
 
@@ -69,11 +77,32 @@ static bool save(void)
     return flash_write(ADDRESS, (const uint8_t *)&block, sizeof(block));
 }
 
+static uint64_t pin_hash(uint32_t salt, const char *digits)
+{
+    uint64_t hash = 14695981039346656037ULL;
+
+    for (int round = 0; round < HASH_ROUNDS; round++) {
+        for (int i = 0; i < 4; i++) {
+            hash = (hash ^ ((salt >> (8 * i)) & 0xFF)) * 1099511628211ULL;
+        }
+        for (int i = 0; i < 8; i++) {
+            hash = (hash ^ ((radio_id >> (8 * i)) & 0xFF)) * 1099511628211ULL;
+        }
+        for (const char *d = digits; *d; d++) {
+            hash = (hash ^ (uint8_t)*d) * 1099511628211ULL;
+        }
+    }
+    return hash;
+}
+
 void security_load(void)
 {
-    if (!flash_read(ADDRESS, (uint8_t *)&block, sizeof(block)) || (block.magic != MAGIC) ||
-        (block.length > SECURITY_PIN_MAX)) {
+    radio_id = flash_unique_id();
+    if (!flash_read(ADDRESS, (uint8_t *)&block, sizeof(block)) || (block.magic != MAGIC) || (block.set > 1)) {
         memset(&block, 0, sizeof(block));
+    }
+    if (!block.set) {
+        block.flags = 0;
     }
     boot_locked = (block.flags & FLAG_BOOT) != 0;
 }
@@ -87,7 +116,8 @@ bool security_check_pin(const char *digits)
 {
     size_t length = strlen(digits);
 
-    return (block.length > 0) && (length == block.length) && (memcmp(digits, block.pin, length) == 0);
+    return block.set && (length >= SECURITY_PIN_MIN) && (length <= SECURITY_PIN_MAX) &&
+           (pin_hash(block.salt, digits) == block.hash);
 }
 
 bool security_set_pin(const char *digits)
@@ -103,9 +133,9 @@ bool security_set_pin(const char *digits)
             return false;
         }
     }
-    memset(block.pin, 0, sizeof(block.pin));
-    memcpy(block.pin, digits, length);
-    block.length = (uint8_t)length;
+    block.salt = (systime_get_ms() * 2654435761UL) ^ datetime_now() ^ (uint32_t)(uintptr_t)&before;
+    block.hash = pin_hash(block.salt, digits);
+    block.set = 1;
     if (!save()) {
         block = before;
         return false;
@@ -117,7 +147,7 @@ static void set_flag(uint8_t flag, bool on)
 {
     uint8_t flags = on ? (uint8_t)(block.flags | flag) : (uint8_t)(block.flags & ~flag);
 
-    if (on && (block.length == 0)) {
+    if (on && !block.set) {
         return;
     }
     if (flags != block.flags) {
@@ -153,19 +183,6 @@ void security_set_lock_pin(bool on)
 bool security_secured(void)
 {
     return boot_locked || (locked && security_lock_pin_on());
-}
-
-// From the cable link task (the receiver off): the user data and the PIN erased; the caller restarts the radio
-bool security_wipe(void)
-{
-    bool ok;
-
-    systime_watchdog_hold++; // seconds of erasing
-    ok = flash_erase(0, WIPE_SIZE);
-    systime_watchdog_hold--;
-    memset(&block, 0, sizeof(block));
-    boot_locked = false;
-    return ok;
 }
 
 // The CPS writes a 4 KB sector of the window: ours stays as it is

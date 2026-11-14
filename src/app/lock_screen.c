@@ -32,10 +32,11 @@
  *
  * The lock only exists on the home screens: locking goes home, as the original pops to the root menu. While the
  * keypad is locked every key, the side buttons and the rotary are taken; a key press shows the lock page a moment,
- * SK2 + * unlocks both. The PTT still works unless the PTT is locked too. The page takes the keys itself, so the
+ * SK1 + * unlocks both (not SK2 + * of the main firmware: on the DM-32 a held SK2 hides the column of *, keys.c). The PTT still works unless the PTT is locked too. The page takes the keys itself, so the
  * unlock works while it shows. The auto lock: idle.c asks the home screens (UI_DATA_AUTOLOCK). TODO: the voice
  * prompts. With the lock PIN (security.h) the lock takes the PTT too, SK2 + * asks for the PIN (pin_screen.c), and
- * the radio starts locked (unless the power-on PIN was asked); the reception goes on. Then the lock page stays
+ * the radio starts locked (unless the power-on PIN was asked); the reception goes on. Then any key (not the PTT,
+ * not a side key) asks for the PIN, a digit as its first one. Then the lock page stays
  * as the lock screen (the time, no channel) until the PIN unlocks, and the VOX is off (radio.c).
  */
 
@@ -48,11 +49,14 @@
 #include "security.h"
 #include "pin_screen.h"
 #include "lock_screen.h"
+#include "cable_link.h"
+#include "sound.h"
 
 #define SHOW_MS  1000
 #define CLOCK_MS 5000 // the lock screen's clock
 #define TIME_Y   70
 #define TEXT_Y   150
+#define CABLE_ACTIVE_MS 2000 // the CPS or an update on the cable: no lock (it would cut them off half way)
 
 static bool keypad_locked = false;
 static bool ptt_locked = false;
@@ -78,6 +82,10 @@ static void show(void)
 
 void lock_screen_lock(bool keypad, bool ptt)
 {
+    if (keypad && !keypad_locked && cable_link_used_within(CABLE_ACTIVE_MS)) {
+        sound_play(SOUND_ERROR); // the cable link would stop answering (security.h)
+        return;
+    }
     keypad_locked = keypad;
     ptt_locked = ptt || (keypad && security_lock_pin_on());
     security_set_locked(keypad_locked);
@@ -137,14 +145,19 @@ bool lock_screen_filter(const ui_event_t *ev)
     if (!keypad_locked) {
         return false;
     }
-    if ((ev->type == UI_EVENT_KEY_PRESS) && (ev->key == UI_KEY_STAR) && (ev->modifiers & UI_MODIFIER_SK2)) {
+    if (ev->type != UI_EVENT_KEY_PRESS) {
+        return true;
+    }
+    if ((ev->key == UI_KEY_STAR) && (ev->modifiers & UI_MODIFIER_SK1)) {
         if (security_lock_pin_on()) {
-            ui_push(&pin_screen, PIN_SCREEN_UNLOCK); // right: lock_screen_unlock()
+            pin_screen_unlock(-1); // right: lock_screen_unlock()
         } else {
             lock_screen_unlock();
         }
-    } else if ((ev->type == UI_EVENT_KEY_PRESS) && (ev->key != UI_KEY_SK2)) {
-        show(); // SK2 alone is the first half of the unlock
+    } else if (lock_screen_stays() && (ev->key != UI_KEY_SK1) && (ev->key != UI_KEY_SK2)) {
+        pin_screen_unlock(ui_key_digit(ev->key)); // the lock PIN: any key asks for it
+    } else if (ev->key != UI_KEY_SK1) {
+        show(); // SK1 alone is the first half of the unlock
     }
     return true;
 }
@@ -187,7 +200,7 @@ static void lock_screen_draw(void)
         draw_text(FB_WIDTH / 2, TIME_Y, time, &font_roboto44_bold, FONT_ALIGN_CENTER, THEME_COLOUR_TEXT);
     }
     draw_text(FB_WIDTH / 2, TEXT_Y, text(TEXT_LOCKED), &font_roboto20, FONT_ALIGN_CENTER, THEME_COLOUR_WARNING);
-    draw_text(FB_WIDTH / 2, TEXT_Y + 30, text(TEXT_UI_UNLOCK_HINT), &font_roboto17, FONT_ALIGN_CENTER,
+    draw_text(FB_WIDTH / 2, TEXT_Y + 30, text(TEXT_UI_ANY_KEY_UNLOCK), &font_roboto17, FONT_ALIGN_CENTER,
               THEME_COLOUR_TEXT_LABEL);
 }
 

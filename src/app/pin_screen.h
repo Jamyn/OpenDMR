@@ -40,4 +40,6 @@ extern const ui_screen_t pin_screen; // arg: one of these
 #define PIN_SCREEN_SET_BOOT ((void *)3) // ... then the power-on PIN on
 #define PIN_SCREEN_SET_LOCK ((void *)4) // ... then the lock PIN on
 
+void pin_screen_unlock(int first_digit); // PIN_SCREEN_UNLOCK, with that digit typed already (-1: none)
+
 #endif

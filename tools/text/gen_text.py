@@ -101,6 +101,7 @@ EXTRA = [
     ("key_scan_down", "Scan down", "向下扫描", "Scan -"),
     ("key_aprs_toggle", "APRS on/off", "APRS 开/关", "APRS on/off"),
     ("key_aprs_send", "APRS beacon", "APRS 信标", "Beacon APRS"),
+    ("key_lock", "Lock", "锁定", "Bloquear"),
     ("scan_low", "Scan low = RX", "扫描下限 = RX", "Scan bajo = RX"),
     ("scan_high", "Scan high = RX", "扫描上限 = RX", "Scan alto = RX"),
     ("key_tg_from_call", "Caller's TG", "回呼对方组", "TG del que llama"),
@@ -124,6 +125,7 @@ EXTRA = [
     ("ui_pin_mismatch", "Not the same, again", "两次不一致，请重输", "No coinciden, otra vez"),
     ("ui_pin_digits", "4 - 6 digits", "4 - 6 位数字", "4 - 6 digitos"),
     ("ui_pin_wait", "Wait %u s", "请等待 %u 秒", "Espere %u s"),
+    ("ui_any_key_unlock", "Any key to unlock", "按任意键解锁", "Tecla: desbloquear"),
     # The language row of the options: English in every language, so it can be found from a language one cannot read
     ("language_menu", "Language", "Language", "Language"),
 ]

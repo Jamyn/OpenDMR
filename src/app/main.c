@@ -73,11 +73,10 @@
 
 volatile unsigned long freertos_assert_line = 0;
 
-// The screens that go over all others: the hotspot's (not before the power-on PIN), the CPS's (also then: the CPS
-// is the way back from a forgotten PIN)
+// The screens that go over all others: the hotspot's (not while secured: security.h), the CPS's
 static bool screen_hooks(const ui_event_t *ev)
 {
-    return (!security_boot_locked() && hotspot_screen_hook(ev)) || cps_screen_hook(ev);
+    return (!security_secured() && hotspot_screen_hook(ev)) || cps_screen_hook(ev);
 }
 
 int main(void)
@@ -88,6 +87,7 @@ int main(void)
     leds_init();
 
     flash_init();
+    security_load();
     panel_init();
     theme_init();
     backlight_set_percent(100);
@@ -99,7 +99,6 @@ int main(void)
     display_light_start();
     codeplug_init();
     dmr_ids_init();
-    security_load();
     const ui_screen_t *lock = lock_screen_start();
     keymap_load();
     language_load();

@@ -91,6 +91,7 @@ static volatile uint32_t used_ms = 0;        // when the last one was
 static volatile uint32_t quiet_until = 0;
 static volatile bool restart_asked = false;
 static volatile bool update_asked = false;
+static volatile bool wipe_asked = false;
 
 // The CPS write (OpenDM32 functions/cps.c cpsHandleWriteCommand()): the sector being written, SECTOR_NONE,
 // or SECTOR_IGNORED: the OpenGD77 calibration (accepted, not written)
@@ -144,6 +145,9 @@ static uint32_t expected_length(uint32_t received)
     }
     if ((request[0] == 'D') && (received >= 2) && (request[1] == 'U')) {
         return 6; // 'D' 'U' "UPD!": the firmware update
+    }
+    if ((request[0] == 'D') && (received >= 2) && (request[1] == 'E')) {
+        return 7; // 'D' 'E' "WIPE!": the PIN and the user data erased
     }
     if ((request[0] == 'D') && (received >= 2) && (request[1] == 'F')) {
         return 9 + 1024; // font upload: a gap in the UART must not end it early
@@ -364,11 +368,34 @@ static uint32_t handle_update(void)
     return 11;
 }
 
+// 'D' 'E' "WIPE!": the way back from a forgotten PIN (tools/debug/pin_wipe.py), also while secured: the codeplug,
+// the settings and the PIN erased (security.c), then a restart. Only when a PIN is on; not while transmitting.
+// Reply 'D' 'E' ok(1)
+static uint32_t handle_wipe(void)
+{
+    bool ok = (request[2] == 'W') && (request[3] == 'I') && (request[4] == 'P') && (request[5] == 'E') &&
+              (request[6] == '!') && security_has_pin() && !radio_is_transmitting() && !trxTransmissionEnabled;
+
+    reply[0] = 'D';
+    reply[1] = 'E';
+    reply[2] = ok ? 1 : 0;
+    wipe_asked = ok;
+    return 3;
+}
+
+// The receiver off, the erase (some seconds), then the restart
+static void wipe(void)
+{
+    radio_set_channel(NULL);
+    vTaskDelay(pdMS_TO_TICKS(UPDATE_RADIO_OFF_MS));
+    (void)security_wipe();
+    restart();
+}
+
 // Everything stops for good: no receiving (the channel off, the speaker muted), the LCD bus kept from the keypad,
 // then the update with the interrupts off (no keys, knob, PTT or power switch any more) until it restarts the radio
 static void update(void)
 {
-    security_clear(); // the power-on and lock PINs off (security.h)
     radio_set_channel(NULL);
     vTaskDelay(pdMS_TO_TICKS(UPDATE_RADIO_OFF_MS));
     panel_bus_take();
@@ -400,7 +427,10 @@ void cable_link_handle_pending(bool from_monitor)
 
     uint32_t reply_length;
 
-    switch (request[0]) {
+    bool wipe_request = (request[0] == 'D') && (request[1] == 'E');
+
+    // secured: nothing but the wipe (security.h), not even the update
+    switch ((security_secured() && !wipe_request) ? 0 : request[0]) {
         case 'R':
             reply_length = handle_read();
             break;
@@ -418,6 +448,8 @@ void cable_link_handle_pending(bool from_monitor)
         case 'D':
             if (request[1] == 'U') {
                 reply_length = handle_update();
+            } else if (wipe_request) {
+                reply_length = handle_wipe();
             } else {
                 reply_length = debug_handle_command(request, reply, CABLE_LINK_BUFFER_SIZE);
             }
@@ -459,6 +491,9 @@ static void cable_link_task(void *arg)
             cable_link_handle_pending(false);
             if (update_asked) {
                 update();
+            }
+            if (wipe_asked) {
+                wipe();
             }
             if (restart_asked) {
                 vTaskDelay(pdMS_TO_TICKS(CPS_RESTART_DELAY_MS));

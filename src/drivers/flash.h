@@ -51,6 +51,7 @@ bool flash_write_sector_raw(uint32_t address, const uint8_t *data); // a whole 4
 // the writes to one sector are programmed once.
 bool flash_read(uint32_t address, uint8_t *data, uint32_t length);
 bool flash_write(uint32_t address, const uint8_t *data, uint32_t length);
+bool flash_erase(uint32_t address, uint32_t length); // whole sectors in the window
 void flash_batch_start(void);
 bool flash_batch_end(void);
 

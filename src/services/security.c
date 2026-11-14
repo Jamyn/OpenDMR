@@ -29,153 +29,61 @@
 /*
  * OpenDMR, service: the power-on PIN and the lock PIN (security.h).
  *
- * The power-on PIN is the OpenGD77 one, in the codeplug (codeplugGetPasswordPin(), the CPS's boot settings): 0x7519
- * bit 0 on, the PIN at 0x751C, 3 bytes BCD, up to 6 digits, 0xF after the last one. So the OpenGD77 CPS sets and
- * clears it, and a codeplug keeps it between OpenGD77 / OpenDM32 and this firmware. The lock PIN is ours: its
- * switch and a copy of the PIN (set together with the power-on PIN on the radio), in a block after the settings
- * (their flash sector, behind the main firmware's settings_t: 0x604B - 0x60B6), with an id of the firmware build.
- * The CPS can't change it: its sector writes keep the block (security_keep_block()). Another build (an update by
- * any way, also the bootloader) or an update over the cable turns both off: the way back from a forgotten PIN.
- * This file is built every time (Makefile), for the build id.
+ * Both switches and the PIN are ours, in a block after the settings (their flash sector, behind the main firmware's
+ * settings_t: 0x604B - 0x60B6). The CPS can't change it: its sector writes keep the block (security_keep_block()),
+ * and while the radio is secured the cable link answers nothing. A firmware update keeps it too.
+ *
+ * A forgotten PIN: only the wipe command of tools/debug/pin_wipe.py, which the cable link takes also while secured.
+ * It erases the user data with the PIN (WIPE_SIZE from the start of the window: the codeplug, the settings, the
+ * custom data, this block), so the radio comes back empty: a found or stolen radio gives nothing away. The factory
+ * calibration and the Chinese font are below the window, never touched.
  */
 
 #include <string.h>
 #include "flash.h"
+#include "systime.h"
 #include "security.h"
 
-#define STRINGIFY(x)  #x
-#define XSTRINGIFY(x) STRINGIFY(x)
-#ifdef GITVERSION
-#define BUILD_TEXT XSTRINGIFY(GITVERSION) " " __DATE__ " " __TIME__
-#else
-#define BUILD_TEXT __DATE__ " " __TIME__
-#endif
+#define ADDRESS   0x6100     // our block, in the data flash window
+#define MAGIC     0x344E4950 // "PIN4"
+#define WIPE_SIZE 0x100000   // the codeplug (EEPROM part and flash part), the settings, the custom data
 
-#define ADDR_PIN_ENABLE 0x7519 // CODEPLUG_ADDR_BOOT_PASSWORD_PIN + 1: bit 0
-#define ADDR_PIN        0x751C // 3 bytes BCD, high nibble first, 0xF: the end
-#define PIN_BYTES       3
-
-#define ADDRESS 0x6100     // our block, in the data flash window
-#define MAGIC   0x324E4950 // "PIN2"
-
+#define FLAG_BOOT 0x01
 #define FLAG_LOCK 0x02
 
 typedef struct {
     uint32_t magic;
     uint8_t flags;
-    uint8_t length; // of the lock PIN; 0: none
+    uint8_t length; // of the PIN; 0: none
     uint8_t reserved[2];
-    uint32_t build; // build_id() of the firmware that wrote it
     char pin[SECURITY_PIN_MAX];
 } block_t;
 
 static block_t block;
-static bool boot_on = false;
 static volatile bool boot_locked = false;
 static volatile bool locked = false;
-
-// FNV-1a of the build text
-static uint32_t build_id(void)
-{
-    const char *s = BUILD_TEXT;
-    uint32_t hash = 2166136261UL;
-
-    while (*s) {
-        hash = (hash ^ (uint8_t)*s++) * 16777619UL;
-    }
-    return hash;
-}
 
 static bool save(void)
 {
     block.magic = MAGIC;
-    block.build = build_id();
     return flash_write(ADDRESS, (const uint8_t *)&block, sizeof(block));
-}
-
-// The codeplug's PIN as digits (codeplugGetPasswordPin()); its length, 0: none
-static size_t read_pin(char *digits)
-{
-    uint8_t bytes[PIN_BYTES];
-    size_t length = 0;
-
-    if (flash_read(ADDR_PIN, bytes, sizeof(bytes))) {
-        for (size_t i = 0; i < (2 * PIN_BYTES); i++) {
-            uint8_t nibble = (bytes[i / 2] >> (((i % 2) == 0) ? 4 : 0)) & 0x0F;
-
-            if (nibble > 9) {
-                break;
-            }
-            digits[length++] = (char)('0' + nibble);
-        }
-    }
-    digits[length] = '\0';
-    return length;
-}
-
-static bool read_boot_on(void)
-{
-    uint8_t enable = 0;
-
-    return flash_read(ADDR_PIN_ENABLE, &enable, 1) && (enable != 0xFF) && (enable & 0x01);
-}
-
-static bool write_boot_on(bool on)
-{
-    uint8_t enable = 0;
-
-    if (!flash_read(ADDR_PIN_ENABLE, &enable, 1)) {
-        return false;
-    }
-    if (enable == 0xFF) {
-        enable = 0;
-    }
-    enable = on ? (uint8_t)(enable | 0x01) : (uint8_t)(enable & ~0x01);
-    if (!flash_write(ADDR_PIN_ENABLE, &enable, 1)) {
-        return false;
-    }
-    boot_on = on;
-    return true;
-}
-
-static bool pin_present(void)
-{
-    char digits[SECURITY_PIN_MAX + 1];
-
-    return read_pin(digits) > 0;
 }
 
 void security_load(void)
 {
-    bool ours = flash_read(ADDRESS, (uint8_t *)&block, sizeof(block)) && (block.magic == MAGIC);
-
-    if (!ours || (block.length > SECURITY_PIN_MAX)) {
+    if (!flash_read(ADDRESS, (uint8_t *)&block, sizeof(block)) || (block.magic != MAGIC) ||
+        (block.length > SECURITY_PIN_MAX)) {
         memset(&block, 0, sizeof(block));
-        ours = false;
     }
-    boot_on = read_boot_on() && pin_present();
-    if (ours && (block.build != build_id()) && (boot_on || (block.flags & FLAG_LOCK))) {
-        security_clear(); // another firmware: off (the PIN is kept)
-    } else if (!ours || (block.build != build_id())) {
-        (void)save(); // the build from now on (a codeplug's power-on PIN from before is kept)
-    }
-    boot_locked = boot_on;
+    boot_locked = (block.flags & FLAG_BOOT) != 0;
 }
 
 bool security_has_pin(void)
 {
-    return boot_on || security_lock_pin_on();
+    return (block.flags & (FLAG_BOOT | FLAG_LOCK)) != 0;
 }
 
-bool security_check_boot_pin(const char *digits)
-{
-    char pin[SECURITY_PIN_MAX + 1];
-    size_t length = read_pin(pin);
-
-    return (length > 0) && (strcmp(digits, pin) == 0);
-}
-
-bool security_check_lock_pin(const char *digits)
+bool security_check_pin(const char *digits)
 {
     size_t length = strlen(digits);
 
@@ -185,33 +93,33 @@ bool security_check_lock_pin(const char *digits)
 bool security_set_pin(const char *digits)
 {
     size_t length = strlen(digits);
-    uint8_t bytes[PIN_BYTES];
+    block_t before = block;
 
     if ((length < SECURITY_PIN_MIN) || (length > SECURITY_PIN_MAX)) {
         return false;
     }
-    memset(bytes, 0xFF, sizeof(bytes));
     for (size_t i = 0; i < length; i++) {
-        uint8_t shift = ((i % 2) == 0) ? 4 : 0;
-
         if ((digits[i] < '0') || (digits[i] > '9')) {
             return false;
         }
-        bytes[i / 2] = (uint8_t)((bytes[i / 2] & ~(0x0F << shift)) | ((digits[i] - '0') << shift));
     }
-    if (!flash_write(ADDR_PIN, bytes, sizeof(bytes))) {
-        return false;
-    }
-    memset(block.pin, 0, sizeof(block.pin)); // the lock PIN's copy
+    memset(block.pin, 0, sizeof(block.pin));
     memcpy(block.pin, digits, length);
     block.length = (uint8_t)length;
-    return save();
+    if (!save()) {
+        block = before;
+        return false;
+    }
+    return true;
 }
 
 static void set_flag(uint8_t flag, bool on)
 {
     uint8_t flags = on ? (uint8_t)(block.flags | flag) : (uint8_t)(block.flags & ~flag);
 
+    if (on && (block.length == 0)) {
+        return;
+    }
     if (flags != block.flags) {
         uint8_t before = block.flags;
 
@@ -224,7 +132,7 @@ static void set_flag(uint8_t flag, bool on)
 
 bool security_boot_pin_on(void)
 {
-    return boot_on;
+    return (block.flags & FLAG_BOOT) != 0;
 }
 
 bool security_lock_pin_on(void)
@@ -234,28 +142,33 @@ bool security_lock_pin_on(void)
 
 void security_set_boot_pin(bool on)
 {
-    if (!on || pin_present()) {
-        (void)write_boot_on(on);
-    }
+    set_flag(FLAG_BOOT, on);
 }
 
 void security_set_lock_pin(bool on)
 {
-    if (!on || (block.length > 0)) {
-        set_flag(FLAG_LOCK, on);
-    }
+    set_flag(FLAG_LOCK, on);
 }
 
-void security_clear(void)
+bool security_secured(void)
 {
-    if (boot_on) {
-        (void)write_boot_on(false);
-    }
-    block.flags &= (uint8_t)~FLAG_LOCK;
-    (void)save(); // also the build id
+    return boot_locked || (locked && security_lock_pin_on());
 }
 
-// The CPS writes a 4 KB sector of the window: ours stays as it is (lock state and PIN)
+// From the cable link task (the receiver off): the user data and the PIN erased; the caller restarts the radio
+bool security_wipe(void)
+{
+    bool ok;
+
+    systime_watchdog_hold++; // seconds of erasing
+    ok = flash_erase(0, WIPE_SIZE);
+    systime_watchdog_hold--;
+    memset(&block, 0, sizeof(block));
+    boot_locked = false;
+    return ok;
+}
+
+// The CPS writes a 4 KB sector of the window: ours stays as it is
 void security_keep_block(uint32_t sector_address, uint8_t *sector)
 {
     if ((ADDRESS >= sector_address) && ((ADDRESS + sizeof(block)) <= (sector_address + FLASH_SECTOR_SIZE))) {
@@ -280,9 +193,4 @@ void security_boot_unlocked(void)
 void security_set_locked(bool on)
 {
     locked = on;
-}
-
-bool security_vox_blocked(void)
-{
-    return boot_locked || (locked && security_lock_pin_on());
 }

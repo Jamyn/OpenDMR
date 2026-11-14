@@ -32,18 +32,17 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-// The power-on PIN and the lock PIN (both off by default), 4 - 6 digits. The power-on PIN is the OpenGD77 one of the
-// codeplug (the OpenGD77 CPS sets it in its boot settings); the lock PIN is the firmware's own, the CPS can't change
-// it. Setting the PIN on the radio sets both. A firmware update or another firmware turns both off: the way back
-// when the PIN is forgotten.
+// The power-on PIN and the lock PIN (both off by default): one PIN, 4 - 6 digits, kept by the firmware (the CPS
+// can't change it). While secured (the power-on PIN not entered yet, or locked with the lock PIN) the cable link
+// answers nothing but the wipe command (tools/debug/pin_wipe.py): the way back from a forgotten PIN, which erases
+// the codeplug and the settings with it. A firmware update keeps the PINs.
 #define SECURITY_PIN_MIN 4
 #define SECURITY_PIN_MAX 6
 
-void security_load(void); // at start, after codeplug_init()
+void security_load(void); // at start, after flash_init()
 
 bool security_has_pin(void); // one of the two is on (else a new PIN is asked first)
-bool security_check_boot_pin(const char *digits); // a NUL terminated string of digits
-bool security_check_lock_pin(const char *digits);
+bool security_check_pin(const char *digits); // a NUL terminated string of digits
 bool security_set_pin(const char *digits);   // 4 - 6 digits; false: not valid, or not saved
 
 bool security_boot_pin_on(void);
@@ -51,15 +50,18 @@ bool security_lock_pin_on(void);
 void security_set_boot_pin(bool on); // saved; on needs a PIN
 void security_set_lock_pin(bool on);
 
-void security_clear(void);     // both off (a firmware update starts)
-void security_keep_block(uint32_t sector_address, uint8_t *sector); // a CPS sector write keeps the lock PIN
+// Secured: the power-on PIN not entered yet, or locked with the lock PIN. Then the cable link answers nothing, the
+// hotspot doesn't start, the VOX doesn't transmit
+bool security_secured(void);
 
-// The radio waits for the power-on PIN (set at start, cleared by the PIN screen): nothing works until then
+bool security_wipe(void);                                            // the codeplug, the settings and the PIN erased
+void security_keep_block(uint32_t sector_address, uint8_t *sector); // a CPS sector write keeps the PINs
+
+// The radio waits for the power-on PIN (set at start, cleared by the PIN screen)
 bool security_boot_locked(void);
 void security_boot_unlocked(void);
 
-// The keypad lock with the lock PIN (lock_screen.c): the VOX is off then (radio.c)
+// The keypad lock (lock_screen.c)
 void security_set_locked(bool locked);
-bool security_vox_blocked(void);
 
 #endif

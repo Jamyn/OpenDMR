@@ -684,6 +684,9 @@ static bool do_action(keymap_action_t action)
         case KEYMAP_FM_RADIO:
             ui_push(&fm_radio_screen, NULL);
             return false;
+        case KEYMAP_LOCK:
+            lock_screen_lock(true, lock_screen_is_ptt_locked());
+            return true;
         default:
             return false;
     }

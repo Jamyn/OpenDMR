@@ -321,7 +321,7 @@ const char *const text_es[TEXT_COUNT] = {
     [TEXT_UI_RX_ONLY_HINT] = "Fijar Solo RX en CPS",
     [TEXT_UI_OUT_OF_BAND_HINT] = "No es banda TX",
     [TEXT_UI_RELEASE_PTT] = "Soltar el PTT",
-    [TEXT_UI_UNLOCK_HINT] = "SK2 + * desbloq.",
+    [TEXT_UI_UNLOCK_HINT] = "SK1 + * desbloq.",
     [TEXT_UI_PC_INCOMING] = "Llam. entrante",
     [TEXT_UI_CALL_BACK_QM] = "Devolver?",
     [TEXT_UI_PC_TO] = "PC a",
@@ -400,6 +400,7 @@ const char *const text_es[TEXT_COUNT] = {
     [TEXT_KEY_SCAN_DOWN] = "Scan -",
     [TEXT_KEY_APRS_TOGGLE] = "APRS on/off",
     [TEXT_KEY_APRS_SEND] = "Beacon APRS",
+    [TEXT_KEY_LOCK] = "Bloquear",
     [TEXT_SCAN_LOW] = "Scan bajo = RX",
     [TEXT_SCAN_HIGH] = "Scan alto = RX",
     [TEXT_KEY_TG_FROM_CALL] = "TG del que llama",
@@ -423,5 +424,6 @@ const char *const text_es[TEXT_COUNT] = {
     [TEXT_UI_PIN_MISMATCH] = "No coinciden, otra vez",
     [TEXT_UI_PIN_DIGITS] = "4 - 6 digitos",
     [TEXT_UI_PIN_WAIT] = "Espere %u s",
+    [TEXT_UI_ANY_KEY_UNLOCK] = "Tecla: desbloquear",
     [TEXT_LANGUAGE_MENU] = "Language",
 };

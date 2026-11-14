@@ -97,6 +97,14 @@ static void enter(void *arg)
     ui_timer_start(TICK_MS);
 }
 
+void pin_screen_unlock(int first_digit)
+{
+    ui_push(&pin_screen, PIN_SCREEN_UNLOCK);
+    if ((first_digit >= 0) && (first_digit <= 9)) {
+        pin.digits[pin.length++] = (char)('0' + first_digit);
+    }
+}
+
 static void pin_close(void)
 {
     clear_digits();
@@ -123,8 +131,7 @@ static void take(void)
             sound_play(SOUND_ERROR);
             return;
         }
-        if ((pin.mode == PIN_SCREEN_BOOT) ? security_check_boot_pin(pin.digits)
-                                          : security_check_lock_pin(pin.digits)) {
+        if (security_check_pin(pin.digits)) {
             wrong = 0;
             done();
             return;

@@ -321,7 +321,7 @@ const char *const text_zh[TEXT_COUNT] = {
     [TEXT_UI_RX_ONLY_HINT] = "CPS里设为仅接收",
     [TEXT_UI_OUT_OF_BAND_HINT] = "不在发射频段",
     [TEXT_UI_RELEASE_PTT] = "请松开PTT",
-    [TEXT_UI_UNLOCK_HINT] = "SK2 + * 解锁",
+    [TEXT_UI_UNLOCK_HINT] = "SK1 + * 解锁",
     [TEXT_UI_PC_INCOMING] = "个呼来电",
     [TEXT_UI_CALL_BACK_QM] = "回呼对方吗？",
     [TEXT_UI_PC_TO] = "个呼 →",
@@ -400,6 +400,7 @@ const char *const text_zh[TEXT_COUNT] = {
     [TEXT_KEY_SCAN_DOWN] = "向下扫描",
     [TEXT_KEY_APRS_TOGGLE] = "APRS 开/关",
     [TEXT_KEY_APRS_SEND] = "APRS 信标",
+    [TEXT_KEY_LOCK] = "锁定",
     [TEXT_SCAN_LOW] = "扫描下限 = RX",
     [TEXT_SCAN_HIGH] = "扫描上限 = RX",
     [TEXT_KEY_TG_FROM_CALL] = "回呼对方组",
@@ -423,5 +424,6 @@ const char *const text_zh[TEXT_COUNT] = {
     [TEXT_UI_PIN_MISMATCH] = "两次不一致，请重输",
     [TEXT_UI_PIN_DIGITS] = "4 - 6 位数字",
     [TEXT_UI_PIN_WAIT] = "请等待 %u 秒",
+    [TEXT_UI_ANY_KEY_UNLOCK] = "按任意键解锁",
     [TEXT_LANGUAGE_MENU] = "Language",
 };

@@ -227,6 +227,37 @@ bool flash_read(uint32_t address, uint8_t *data, uint32_t length)
     return in_window(address, length) && flash_read_raw(FLASH_WINDOW_BASE + address, data, length);
 }
 
+// Erases the sectors of [address, address + length) in the window (whole sectors; blank ones are left alone)
+bool flash_erase(uint32_t address, uint32_t length)
+{
+    bool ok = true;
+
+    if (((address % FLASH_SECTOR_SIZE) != 0) || ((length % FLASH_SECTOR_SIZE) != 0) || !in_window(address, length)) {
+        return false;
+    }
+    for (uint32_t at = address; ok && (at < (address + length)); at += FLASH_SECTOR_SIZE) {
+        bool blank = true;
+
+        lock();
+        if ((batch_sector >= 0) && ((uint32_t)batch_sector == (at / FLASH_SECTOR_SIZE))) {
+            batch_sector = -1; // the batch's sector is gone
+            batch_dirty = false;
+        }
+        ok = flash_read_raw(FLASH_WINDOW_BASE + at, sector_buffer, FLASH_SECTOR_SIZE);
+        for (uint32_t i = 0; ok && blank && (i < FLASH_SECTOR_SIZE); i++) {
+            blank = (sector_buffer[i] == 0xFF);
+        }
+        if (ok && !blank) {
+            ok = erase_sector_raw(FLASH_WINDOW_BASE + at);
+        }
+        unlock();
+        if (xTaskGetSchedulerState() == taskSCHEDULER_RUNNING) {
+            vTaskDelay(1); // the other tasks between the sectors
+        }
+    }
+    return ok;
+}
+
 static bool program_buffered_sector(int32_t sector)
 {
     return write_sector_raw_locked(FLASH_WINDOW_BASE + (sector * FLASH_SECTOR_SIZE), sector_buffer);

@@ -1039,7 +1039,7 @@ static void vox_check(void)
     level = vox_window_max;
     vox_window_max = 0;
     // the power-on PIN not entered yet, or locked with the lock PIN (security.h): the VOX stays off
-    if (security_vox_blocked()) {
+    if (security_secured()) {
         if (vox_keyed) {
             vox_post(false);
             vox_keyed = false;

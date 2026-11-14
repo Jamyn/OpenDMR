@@ -42,7 +42,7 @@ bool lock_screen_is_keypad_locked(void);
 bool lock_screen_is_ptt_locked(void); // for the transmit code: no transmit while true
 
 // First thing in the handle() of the home screens (channel, VFO): true when the lock takes the event (return false
-// then). A key while locked shows "Locked / SK2 + * to unlock"; SK2 + * unlocks.
+// then). A key while locked shows "Locked / SK1 + * to unlock"; SK1 + * unlocks (with the lock PIN: any key asks for it).
 bool lock_screen_filter(const ui_event_t *ev);
 
 #endif

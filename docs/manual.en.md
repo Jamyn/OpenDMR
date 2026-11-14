@@ -387,6 +387,7 @@ these settings.**
 |---|---|
 | Key long / Key rpt | Long press time; repeat interval of a held key |
 | Auto lock | Locks the keypad and the PTT after this long without use (Off / minutes) |
+| Lock PIN / Power-on PIN / Change PIN | See [PINs](#pins) |
 | Hotspot | Off / MMDVM / BlueDV (see [13](#13-cps-hotspot-firmware-update)) |
 | Batt. Cal | Correction of the battery voltage shown (±0.5 V) |
 | Eco Level | How much the receiver saves power |
@@ -480,9 +481,32 @@ Read only: the factory calibration table (oscillator tune, receive level, power 
 ### Keypad lock
 
 - In the main menu, **\*** locks the keypad, **#** locks the PTT (again: unlocks the PTT); the radio goes home.
-- While locked, a key shows the lock page for a moment; **SK2 + \*** unlocks. With only the keypad locked the PTT
-  still transmits.
+- On a main screen, **SK2 held alone** (about half a second, then released) locks the keypad too; Key settings →
+  Lock moves it to other keys. Held with another key (SK2 + ▲ ...) it doesn't lock.
+- While locked, a key shows the lock page for a moment; **SK1 + \*** unlocks (SK2 + \* can't be pressed on the
+  DM-32: a held SK2 hides the keys 1, 4, 7, \*). With only the keypad locked the PTT still transmits.
 - General options → Auto lock: locks the keypad and the PTT after a time without use.
+- While the cable is in use (CPS, firmware update) the radio doesn't lock, and the auto lock time starts again after
+  it.
+
+### PINs
+
+Both are off by default; General options → **Lock PIN** and **Power-on PIN** turn them on (the first one asks for a
+new PIN, 4 - 6 digits, twice), **Change PIN** sets another one (for both).
+
+- **Lock PIN**: a lock (manual or auto) also locks the PTT and shows the lock screen (the time, nothing of the
+  channel); any key asks for the PIN (a digit counts as its first one). Reception goes on; the VOX does not
+  transmit. The radio also starts locked.
+- **Power-on PIN**: the radio asks for the PIN when it starts, with the receiver off; nothing else works until it is
+  entered.
+- While the radio waits for the PIN or is locked with the lock PIN, the cable answers nothing: no CPS, no firmware
+  update, no hotspot. The CPS can't change the PINs, and a firmware update keeps them.
+- Five wrong PINs in a row: wait 30 s before the next try.
+- **Don't forget the PIN.** A forgotten PIN can only be cleared through the chip's bootloader: switch the radio
+  off, run `tools/debug/pin_wipe.py COMx`, switch the radio on (no key) within 30 s. It clears the PIN only (the
+  codeplug and the settings stay); switch the radio off and on.
+- The PINs keep the radio from being used. They don't keep its flash from being read: the chip's bootloader reads
+  the whole flash for anyone with the cable and a tool.
 
 ### Quick keys (SK2 + digit)
 

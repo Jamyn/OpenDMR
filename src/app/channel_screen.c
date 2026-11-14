@@ -571,6 +571,9 @@ static bool do_action(keymap_action_t action)
         case KEYMAP_APRS_SEND:
             aprs_send();
             return true;
+        case KEYMAP_LOCK:
+            lock_screen_lock(true, lock_screen_is_ptt_locked());
+            return true;
         default:
             return false;
     }

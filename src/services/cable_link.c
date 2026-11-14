@@ -55,6 +55,7 @@
 #include "serial_update.h"
 #include "dmr_compat.h"
 #include "cps_screen.h"
+#include "security.h"
 
 #define CPS_REQUEST_IDLE_MS   5   // a request without a known length is complete after this silence
 #define CPS_REQUEST_LOST_MS   200 // a debug request with a known length that stopped short is handled anyway
@@ -281,6 +282,7 @@ static uint32_t handle_write(void)
             } else if ((write_sector >= 0) && (((uint32_t)write_sector * FLASH_SECTOR_SIZE) < FLASH_WINDOW_SIZE)) {
                 uint32_t address = (uint32_t)write_sector * FLASH_SECTOR_SIZE;
 
+                security_keep_block(address, sector_buffer); // the CPS can't change the lock PIN
                 ok = flash_write_sector_raw(FLASH_WINDOW_BASE + address, sector_buffer);
                 if (ok && (((address >= DMR_IDS_AREA_1) && (address < DMR_IDS_AREA_1_END)) ||
                            ((address >= DMR_IDS_AREA_2) && (address < DMR_IDS_AREA_2_END)))) {
@@ -397,7 +399,8 @@ void cable_link_handle_pending(bool from_monitor)
 
     uint32_t reply_length;
 
-    switch (request[0]) {
+    // secured: nothing at all (security.h), not even the update
+    switch (security_secured() ? 0 : request[0]) {
         case 'R':
             reply_length = handle_read();
             break;

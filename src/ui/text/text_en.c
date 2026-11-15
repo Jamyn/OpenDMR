@@ -396,6 +396,7 @@ const char *const text_en[TEXT_COUNT] = {
     [TEXT_KEY_ZONE_DOWN] = "Zone -",
     [TEXT_KEY_TX_UP] = "Change RX freq",
     [TEXT_KEY_TX_DOWN] = "Change TX freq",
+    [TEXT_KEY_HELD] = "long",
     [TEXT_KEY_SCAN_UP] = "Scan up",
     [TEXT_KEY_SCAN_DOWN] = "Scan down",
     [TEXT_KEY_APRS_TOGGLE] = "APRS on/off",
@@ -426,5 +427,6 @@ const char *const text_en[TEXT_COUNT] = {
     [TEXT_UI_PIN_WAIT] = "Wait %u s",
     [TEXT_UI_ANY_KEY_UNLOCK] = "Any key to unlock",
     [TEXT_CALLER_PLACE] = "Caller's place",
+    [TEXT_THEME] = "Theme",
     [TEXT_LANGUAGE_MENU] = "Language",
 };

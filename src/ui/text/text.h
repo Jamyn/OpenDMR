@@ -400,6 +400,7 @@ typedef enum {
     TEXT_KEY_ZONE_DOWN,
     TEXT_KEY_TX_UP,
     TEXT_KEY_TX_DOWN,
+    TEXT_KEY_HELD,
     TEXT_KEY_SCAN_UP,
     TEXT_KEY_SCAN_DOWN,
     TEXT_KEY_APRS_TOGGLE,
@@ -430,6 +431,7 @@ typedef enum {
     TEXT_UI_PIN_WAIT,
     TEXT_UI_ANY_KEY_UNLOCK,
     TEXT_CALLER_PLACE,
+    TEXT_THEME,
     TEXT_LANGUAGE_MENU,
     TEXT_COUNT
 } text_id_t;

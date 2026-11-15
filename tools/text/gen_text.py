@@ -97,6 +97,7 @@ EXTRA = [
     ("key_zone_down", "Zone -", "区域 -", "Zona -"),
     ("key_tx_up", "Change RX freq", "改接收频率", "Cambiar freq RX"),
     ("key_tx_down", "Change TX freq", "改发射频率", "Cambiar freq TX"),
+    ("key_held", "long", "长按", "larga"),  # after a key combination held: "SK2+Right long"
     ("key_scan_up", "Scan up", "向上扫描", "Scan +"),
     ("key_scan_down", "Scan down", "向下扫描", "Scan -"),
     ("key_aprs_toggle", "APRS on/off", "APRS 开/关", "APRS on/off"),
@@ -127,6 +128,7 @@ EXTRA = [
     ("ui_pin_wait", "Wait %u s", "请等待 %u 秒", "Espere %u s"),
     ("ui_any_key_unlock", "Any key to unlock", "按任意键解锁", "Tecla: desbloquear"),
     ("caller_place", "Caller's place", "对方地址", "Lugar llamante"),
+    ("theme", "Theme", "主题", "Tema"),
     # The language row of the options: English in every language, so it can be found from a language one cannot read
     ("language_menu", "Language", "Language", "Language"),
 ]

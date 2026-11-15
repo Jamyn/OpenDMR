@@ -74,16 +74,17 @@ Also: SK2 + menu key opens the channel details directly; SK2 + a digit is a quic
 
 <img src="manual/en/channel-idle.png" alt="Channel screen"> <img src="manual/en/main-menu.png" alt="Main menu">
 
-- **Status bar** (top): signal bars, timeslot `TS1`/`TS2`, colour code `CC1`, scan icon, time, battery. A green line
+- **Status bar** (top, on the theme's band): signal bars, timeslot `TS1`/`TS2`, colour code `CC1`, scan icon, time, battery. A green line
   under it while receiving; the whole bar turns red while transmitting.
 - **Main area**: on the channel screen the zone and position, the channel name (large), the frequency, the talk
   group, the S meter.
-- **Bottom bar**: on the main screens the mode (`DMR`/`FM`/`AM`/`USB`/`LSB`), power and bandwidth; on lists what the two keys do.
-- **Lists** (menus, settings): the title bar shows the name and the position (`1/10`), the selected row is blue,
-  7 rows a page, ▲ ▼ wrap around at the ends.
+- **Bottom bar** (on the band too): on the main screens the mode (`DMR`/`FM`/`AM`/`USB`/`LSB`), power and bandwidth; on lists what the two keys do.
+- **Lists** (menus, settings): the title bar shows the name and the position (`1/10`), the selected row is in the
+  theme's highlight colour (cyan in Deep sea), 7 rows a page, ▲ ▼ wrap around at the ends.
 
-Colours mean something: green = receive, red = transmit, blue = selected / current, amber = warning (low battery,
-scan, timeout near).
+Colours mean something: green = receive, red = transmit, the highlight colour = selected / current, amber = warning
+(low battery, scan, timeout near). The colours themselves come from the theme (Display options → Theme); the
+screenshots here are in Deep sea.
 
 ---
 
@@ -382,8 +383,9 @@ the GPS; APRS and the satellite screen can use the GPS location.
 
 ## 11. Options
 
-Main menu → Options. On every settings list: ▲ ▼ choose, **◀ ▶ change the value**, the menu key opens a sub list or
-toggles, the back key goes back. Settings work at once and are saved at power off. **The CPS doesn't read or write
+Main menu → Options. On every settings list: ▲ ▼ choose, **◀ ▶ (or the knob) change the value**, the menu key opens
+a sub list or does an action (it doesn't change a value; "Select" shows where it does something), the back key goes
+back. Settings work at once and are saved at power off. **The CPS doesn't read or write
 these settings.**
 
 <img src="manual/en/options.png" alt="Options">
@@ -435,7 +437,23 @@ SK2 + ▶ ◀ changes the one in use, and it is kept.
 
 Brightness (day), Nite bright, Min bright (the backlight when "off"); Mode (Auto / Squelch / Manual / Buttons),
 Timeout; Auto night; LEDs; Timezone (an hour a step, a quarter with SK2 held); Time shown in UTC or local time;
-Caller's place (the city and state of a DMR caller on the receive screen; the country always shows).
+Caller's place (the city and state of a DMR caller on the receive screen; the country always shows); Theme (the
+whole look, colours and bands):
+
+| Theme | |
+|---|---|
+| Auto (the default) | Sunlight from 7:00 to 19:00 local time, Deep sea at night and without a clock |
+| Deep sea | Dark: navy, a sea blue band, cyan for what is selected |
+| Sunlight | Light, for outdoors: black text, every layer dark enough for bright light |
+| Clear sky | Light: white, a royal blue band, orange for what is selected |
+| Graphite | Dark: graphite and orange |
+| Night amber | Dark: amber on black, as night vision gear |
+| High contrast | Light: black on white, a black band, yellow for what is selected |
+
+<img src="manual/themes.png" alt="The six themes">
+
+Outdoors take a light theme and the brightness up: a dark background can't be seen in daylight. New themes are a file
+each in the source (`src/graphics/themes/`).
 
 ### Sound options
 
@@ -528,7 +546,8 @@ new PIN, 4 - 6 digits, twice), **Change PIN** sets another one (for both).
 
 <img src="manual/en/key-settings.png" alt="Key settings"> <img src="manual/en/key-settings-2.png" alt="Key settings 2"> <img src="manual/en/key-settings-3.png" alt="Key settings 3">
 
-One row an action with its keys (the defaults: [1](#shortcuts-on-the-main-screens-defaults)).
+One row an action with its keys (the defaults: [1](#shortcuts-on-the-main-screens-defaults)); a long press shows as
+`long` after the keys (`SK2+Right long`).
 
 - The menu key on a row, then the new keys: SK1 / SK2 held with another key, a short or a long press, or SK1 or SK2
   alone. The back key keeps the old keys.
@@ -585,7 +604,6 @@ firmware: see the README.
 
 - No voice prompts (the radio has no voice data).
 - The calibration is read only: power and oscillator can't be changed.
-- No themes: the interface has fixed colours.
 - Safe Pwr-On and Sat (Manual / Auto) have no effect yet.
 - P25: simplex group calls in clear only; known issues in [docs/p25.md](p25.md), section 6.
 - Not fully tested on the air yet: APRS beacons received by an APRS decoder (their frames are checked; the radio itself

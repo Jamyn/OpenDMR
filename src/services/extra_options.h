@@ -38,6 +38,8 @@
 void extra_options_load(void); // after flash_init()
 bool extra_option(uint32_t bit);
 void extra_option_set(uint32_t bit, bool on); // saved at once
+uint8_t extra_options_theme(void);          // the theme chosen (display.c); 0xFF: none yet
+void extra_options_set_theme(uint8_t theme); // saved at once
 void extra_options_keep_block(uint32_t sector_address, uint8_t *sector); // a CPS sector write keeps the block
 
 #endif

@@ -258,8 +258,17 @@ While transmitting:
 - **SK1 + ▲** scans up, **SK1 + ▼** down. In channel mode the zone is scanned (channels with Zone Skip are skipped;
   in All Channels those with All Skip); in the VFO between the scan limits (without limits: the whole band). The
   status bar shows the scan icon.
-- While scanning: **▲** goes on at once; **◀** reverses; when it has stopped on a signal, **\*** skips that channel /
-  frequency as a nuisance (for this scan); **PTT** stops the scan and transmits; **any other key** stops it.
+- While scanning: **▲** goes on at once; **◀** reverses; when it has stopped on a signal, **\*** locks that channel /
+  frequency out: **short** (a click) until the radio is switched off (nuisance delete, up to 64), **held** (a
+  confirmation tone) for good: a channel gets Zone Skip (All Skip in All Channels) in the codeplug, a VFO frequency
+  is kept in the radio (up to 32). The scan goes on, and shows how many are locked out. **PTT** stops the scan and
+  transmits; **any other key** stops it.
+- The channel or VFO quick menu's **Scan lockout** (On / Off, with ◀ ▶ or the knob) is the current channel or
+  frequency: On locks it out for good (also after a Stop mode scan ended on it), Off puts it back in the scans,
+  however it was locked out.
+- Main menu → **Scan lockouts** lists all of them, the kind on the right: Temp (until power off), Saved (a VFO
+  frequency), Zone skip / All skip (a channel, from the codeplug: also those set in the CPS or the channel details).
+  The menu key on a row unlocks it, the last row unlocks them all.
 - Radio options: Scan delay (how long it stays), Scan dwell (the time on each channel / frequency), Scan mode (Hold /
   Pause / Stop), Scan On Boot.
 - DMR and P25 channels take at least 50 ms each; where the signal strength rises over the noise, the scan waits up to

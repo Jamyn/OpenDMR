@@ -59,5 +59,6 @@ void radio_eco_activity(void);
 void radio_vox_key(bool ptt_held);
 
 const char *radio_state_name(void); // the state machine's state (radio_fsm.h), for the test interface
+bool radio_rf_on_air(void);         // the PA on (radio_rf.c), a DMR data burst too: for the test interface
 
 #endif

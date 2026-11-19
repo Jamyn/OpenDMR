@@ -422,6 +422,9 @@ const char *const text_es[TEXT_COUNT] = {
     [TEXT_POWER_TO_ALL_ASK] = "Todos canales + VFO",
     [TEXT_POWER_TO_ALL_DONE] = "Canales ajustados",
     [TEXT_APRS_SEND_NOW] = "Enviar baliza",
+    [TEXT_APRS_SEND_VIA] = "Enviar por",
+    [TEXT_APRS_GATEWAY] = "Pasarela",
+    [TEXT_NXDN_ID] = "ID NXDN",
     [TEXT_BOOT_PIN] = "PIN al encender",
     [TEXT_LOCK_PIN] = "PIN de bloqueo",
     [TEXT_CHANGE_PIN] = "Cambiar PIN",
@@ -437,5 +440,4 @@ const char *const text_es[TEXT_COUNT] = {
     [TEXT_SHOW_RECENT_CALLERS] = "Últ. llamadas",
     [TEXT_THEME] = "Tema",
     [TEXT_LANGUAGE_MENU] = "Language",
-    [TEXT_NXDN_ID] = "ID NXDN",
 };

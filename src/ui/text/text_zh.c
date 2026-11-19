@@ -422,6 +422,9 @@ const char *const text_zh[TEXT_COUNT] = {
     [TEXT_POWER_TO_ALL_ASK] = "所有信道和VFO",
     [TEXT_POWER_TO_ALL_DONE] = "已设置信道数",
     [TEXT_APRS_SEND_NOW] = "立即发送信标",
+    [TEXT_APRS_SEND_VIA] = "发送方式",
+    [TEXT_APRS_GATEWAY] = "网关",
+    [TEXT_NXDN_ID] = "NXDN ID",
     [TEXT_BOOT_PIN] = "开机密码",
     [TEXT_LOCK_PIN] = "锁屏密码",
     [TEXT_CHANGE_PIN] = "修改密码",
@@ -437,5 +440,4 @@ const char *const text_zh[TEXT_COUNT] = {
     [TEXT_SHOW_RECENT_CALLERS] = "显示最近主叫",
     [TEXT_THEME] = "主题",
     [TEXT_LANGUAGE_MENU] = "Language",
-    [TEXT_NXDN_ID] = "NXDN ID",
 };

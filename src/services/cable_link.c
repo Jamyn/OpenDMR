@@ -169,6 +169,12 @@ static uint32_t expected_length(uint32_t received)
             default: break;
         }
     }
+    if ((request[0] == 'D') && (received >= 2) && (request[1] == 'g')) {
+        return 5; // 'D' 'g' and a 3 byte DMR ID: the APRS-over-DMR gateway (test_link.c)
+    }
+    if ((request[0] == 'D') && (received >= 2) && (request[1] == 'w')) {
+        return 3; // 'D' 'w' and the AFSK / DMR / both selector (test_link.c)
+    }
     if ((request[0] == 'D') && (received >= 2) && (request[1] == 'Z')) {
         return 8; // a packed read (debug.c)
     }

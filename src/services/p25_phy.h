@@ -129,6 +129,8 @@ extern volatile uint32_t p25_phy_txlog_n;
 // The NXDN receiver (nxdn_radio.c): the modem in FM recording its AF input (8 kHz) all the time, the DMR handlers
 // standing aside; nxdn_fm_read(): the next half (256 samples) once the modem finished it (false: not yet)
 bool nxdn_fm_start(void);
+// the same with another FM_BANDWIDTH while recording (NXDN: 0x1F; M17: 0x0F, no de-emphasis)
+bool nxdn_fm_start_bw(uint32_t bw);
 void nxdn_fm_stop(void);
 bool nxdn_fm_read(int16_t out[256]);
 extern volatile uint32_t nxdn_fm_rewrites;

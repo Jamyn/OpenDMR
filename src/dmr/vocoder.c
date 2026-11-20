@@ -41,6 +41,7 @@
 
 extern uint8_t __vocoder_ram_start[], __vocoder_ram_end[], __vocoder_flash_start[];
 extern uint8_t __p25_ram_start[], __p25_ram_end[], __p25_flash_start[];
+extern uint8_t __m17_ram_start[], __m17_ram_end[], __m17_flash_start[];
 
 static uint8_t overlay = OVERLAY_NONE; // which one is in the overlay RAM (ckcpu.ld)
 #define loaded (overlay == OVERLAY_AMBE) // the vocoder is in the RAM
@@ -104,6 +105,9 @@ void overlay_use(int which)
     if (which == OVERLAY_P25) {
         memcpy(__p25_ram_start, __p25_flash_start, (size_t)(__p25_ram_end - __p25_ram_start));
         overlay = OVERLAY_P25;
+    } else if (which == OVERLAY_M17) {
+        memcpy(__m17_ram_start, __m17_flash_start, (size_t)(__m17_ram_end - __m17_ram_start));
+        overlay = OVERLAY_M17;
     } else if (which == OVERLAY_AMBE) {
         vocoder_load();
     }

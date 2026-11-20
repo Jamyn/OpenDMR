@@ -245,9 +245,15 @@ int nxdn_af_capture(int halves, uint32_t fm_bandwidth, int work_mode)
 #define NXDN_FM_DEV       (*(volatile uint32_t *)(MODEM_REG_BASE + 0x0504))
 static uint32_t nxdn_saved_wm, nxdn_saved_bw, nxdn_saved_dev, nxdn_saved_phy_wm;
 static uint32_t nxdn_last_sw;
+static uint32_t nxdn_bw = NXDN_FM_BW_VALUE; // the recording's FM_BANDWIDTH (nxdn_fm_start_bw())
 volatile uint32_t nxdn_fm_rewrites; // WORK_MODE / FM_BANDWIDTH found changed and put back
 
 bool nxdn_fm_start(void)
+{
+    return nxdn_fm_start_bw(NXDN_FM_BW_VALUE);
+}
+
+bool nxdn_fm_start_bw(uint32_t bw)
 {
     if (active || tx_active) {
         return false;
@@ -259,7 +265,8 @@ bool nxdn_fm_start(void)
     active = true; // the DMR interrupt handlers stand aside from here (dmr.c)
     p25_phy_work_mode = NXDN_FM_WORK_MODE; // dmr_sound.c send() keeps it
     *WORK_MODE = NXDN_FM_WORK_MODE;
-    NXDN_FM_BW = NXDN_FM_BW_VALUE;
+    nxdn_bw = bw;
+    NXDN_FM_BW = bw;
     NXDN_FM_DEV = 0x40A25;
     nxdn_last_sw = NXDN_FM_ADDR_SW & 3;
     return true;
@@ -282,9 +289,9 @@ void nxdn_fm_stop(void)
 // late reader loses whole halves, told by the caller's clock)
 bool nxdn_fm_read(int16_t out[256])
 {
-    if ((*WORK_MODE != NXDN_FM_WORK_MODE) || (NXDN_FM_BW != NXDN_FM_BW_VALUE)) { // something set them back
+    if ((*WORK_MODE != NXDN_FM_WORK_MODE) || (NXDN_FM_BW != nxdn_bw)) { // something set them back
         *WORK_MODE = NXDN_FM_WORK_MODE;
-        NXDN_FM_BW = NXDN_FM_BW_VALUE;
+        NXDN_FM_BW = nxdn_bw;
         nxdn_fm_rewrites++;
     }
     uint32_t sw = NXDN_FM_ADDR_SW & 3;

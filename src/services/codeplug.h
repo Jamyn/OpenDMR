@@ -44,7 +44,7 @@
 // The codeplug knows FM (0) and DMR (1). AM, USB and LSB (receive only) are stored as an analog channel (0, what the
 // CPS shows) with the mode in the byte the OpenGD77 format leaves unused (opendmr_mode: 0xA1 AM, 0xA2 USB, 0xA3 LSB,
 // anything else FM); P25 as a digital one (1: the CPS shows DMR) with opendmr_mode 0xA4, NXDN (NXDN48, receive only)
-// the same with 0xA5
+// the same with 0xA5, M17 (receive only for now) with 0xA6
 typedef enum {
     CODEPLUG_MODE_FM = 0,
     CODEPLUG_MODE_DMR = 1,
@@ -53,15 +53,18 @@ typedef enum {
     CODEPLUG_MODE_LSB = 4,
     CODEPLUG_MODE_P25 = 5,
     CODEPLUG_MODE_NXDN = 6,
+    CODEPLUG_MODE_M17 = 7,
     CODEPLUG_MODES
 } codeplug_mode_t;
 
 static inline bool codeplug_mode_is_analog(uint8_t mode)
 {
-    return (mode != CODEPLUG_MODE_DMR) && (mode != CODEPLUG_MODE_P25) && (mode != CODEPLUG_MODE_NXDN);
+    return (mode != CODEPLUG_MODE_DMR) && (mode != CODEPLUG_MODE_P25) && (mode != CODEPLUG_MODE_NXDN) &&
+           (mode != CODEPLUG_MODE_M17);
 }
 
-// DMR, P25 and NXDN: the FD6818 set up as for DMR (the HR_C7000 demodulates 4FSK; NXDN: it records the discriminator)
+// DMR, P25, NXDN and M17: the FD6818 set up as for DMR (the HR_C7000 demodulates 4FSK; NXDN: it records the
+// discriminator)
 static inline bool codeplug_mode_is_digital(uint8_t mode)
 {
     return !codeplug_mode_is_analog(mode);
@@ -79,8 +82,8 @@ static inline bool codeplug_mode_can_transmit(uint8_t mode)
            (mode == CODEPLUG_MODE_NXDN);
 }
 
-const char *codeplug_mode_name(uint8_t mode);  // "FM", "DMR", "AM", "USB", "LSB", "P25", "NXDN"
-uint8_t codeplug_mode_step(uint8_t mode, int direction); // the mode key's order: FM, AM, USB, LSB, DMR, P25, NXDN
+const char *codeplug_mode_name(uint8_t mode);  // "FM", "DMR", "AM", "USB", "LSB", "P25", "NXDN", "M17"
+uint8_t codeplug_mode_step(uint8_t mode, int direction); // the mode key's order: FM, AM, USB, LSB, DMR, P25, NXDN, M17
 
 // A channel as stored (56 bytes), then two values worked out when it is read
 typedef struct {

@@ -49,7 +49,9 @@
 
 #define SOUND_TASK_PRIORITY 3
 #define AMP_START_MS        75 // DELAYED_BEEP_DURATION_MS: the amplifier needs this before the first note
-#define PATH_SETTLE_MS      5  // the audio path switched, before the amplifier goes on
+#define CLEAR_MS            40 // the audio path switched, silence into the prompt FIFO before the amplifier goes on:
+                                // what the FIFO held from the last time is played out unheard (there is no reset
+                                // bit; else a click at the next beep, the DMR transmit beep, 2026-11-20)
 #define AMP_STOP_MS         20 // the amplifier off, before the audio path switches back
 #define LOW_BATTERY_MS      (5 * 60 * 1000) // LOW_BATTERY_INTERVAL: the low battery beep again after this
 #define CHECK_MS            1000 // the idle task looks at the battery this often
@@ -326,7 +328,13 @@ static void sound_task(void *arg)
         if (!amp_on) {
             radio_beep_path(true);
             modem_beep(true);
-            vTaskDelay(pdMS_TO_TICKS(PATH_SETTLE_MS));
+            for (int ms = 0; ms < CLEAR_MS; ms++) {
+                if (!modem_beep_fifo_full()) {
+                    static const uint8_t zero[MODEM_BEEP_BLOCK];
+                    modem_beep_write(zero);
+                }
+                vTaskDelay(1);
+            }
             radio_beep_amp(true);
             vTaskDelay(pdMS_TO_TICKS(AMP_START_MS));
             amp_on = true;

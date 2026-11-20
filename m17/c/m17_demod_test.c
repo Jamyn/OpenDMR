@@ -11,6 +11,7 @@ static m17_demod dm;
 static FILE *out;
 static unsigned streams, metric_sum, metric_max, lsfs, eots, losts;
 static long dibits;
+static double gain_sum; // the demodulator's gain at each stream frame (per symbol level)
 
 static void on_dibit(void *ctx, uint8_t d)
 {
@@ -28,6 +29,7 @@ static void on_dibit(void *ctx, uint8_t d)
         break;
     case M17_RX_STREAM:
         streams++;
+        gain_sum += dm.g / 256.0;
         metric_sum += rx.metric;
         if (rx.metric > metric_max) {
             metric_max = rx.metric;
@@ -68,9 +70,10 @@ int main(int argc, char **argv)
         m17_demod_samples(&dm, buf, (int)n);
     }
     printf("syncs %u resyncs %u lost %u eots %u | frames: lsf %u, stream %u (metric mean %.2f, max %u), core eot %u, "
-           "lich ok %u bad %u, dibits %ld, last sync err %.2f\n",
+           "lich ok %u bad %u, dibits %ld, last sync err %.2f, gain %.1f a symbol level\n",
            dm.syncs, dm.resyncs, dm.lost, dm.eots, lsfs, streams, streams ? (double)metric_sum / streams : 0.0,
-           metric_max, eots, rx.lich_ok, rx.lich_bad, dibits, dm.last_err / 256.0);
+           metric_max, eots, rx.lich_ok, rx.lich_bad, dibits, dm.last_err / 256.0,
+           streams ? gain_sum / streams : 0.0);
     if (out) {
         fclose(out);
     }

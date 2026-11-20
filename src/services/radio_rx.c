@@ -338,7 +338,7 @@ void tune_channel(const codeplug_channel_t *next, bool valid)
             nxdn_radio_start();
             rs.nxdn_running = true;
         }
-        // M17: the physical layer receive as P25's, hunting for M17's preamble and LSF sync (m17_radio.c)
+        // M17: the discriminator recorded and demodulated in software, as NXDN (m17_radio.c)
         if (rs.channel.mode == CODEPLUG_MODE_M17) {
             m17_radio_start();
             rs.m17_running = true;

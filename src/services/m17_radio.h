@@ -32,7 +32,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-// The M17 receiver (m17/README.md): the HR_C7000's recording of the discriminator (8 kHz, as NXDN's) demodulated in
+// The M17 receiver and transmitter (m17/README.md): the HR_C7000's recording of the discriminator (8 kHz, as NXDN's) demodulated in
 // software (m17_demod.c), the dibits into m17_core.c, the Codec 2 3200 frames through c2dec.c (all in the M17 overlay
 // RAM) to the speaker through the prompt FIFO. Started by radio.c on an M17 channel, once the RF and the modem are set
 // up as for DMR.
@@ -48,12 +48,19 @@ void m17_radio_start(void);
 void m17_radio_stop(void);
 bool m17_radio_call(m17_call_t *out); // the call now (false: none)
 bool m17_radio_heard_within(uint32_t ms); // a stream frame decoded in the last ms (the scan)
+// The PTT: a voice stream from the radio's callsign (the codeplug's) to ALL while on; transmitting until the EoT is
+// sent. The channel access number it carries (the channel's, tx_target_apply()); received: any
+void m17_radio_set_can(uint8_t can);
+void m17_radio_transmit(bool on);
+bool m17_radio_transmitting(void);
 
 // counters, read over the cable
 typedef struct {
     uint32_t halves, syncs, lost, streams, bad_frames, lsfs, eots, c2_frames, pcm_drops, underruns, calls;
     uint32_t decode_us_max; // the longest two Codec 2 frames took
     uint32_t busy_us_max;   // the longest a half took (demodulation and all)
+    uint32_t gain_sum;      // the demodulator's gain at each stream frame (Q8, per symbol level): over streams, the
+                            // deviation as received (tests: m17/py/m17_tx_check.py)
 } m17_radio_stats_t;
 extern volatile m17_radio_stats_t m17_radio_stats;
 

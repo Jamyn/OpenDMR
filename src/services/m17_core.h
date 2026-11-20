@@ -26,7 +26,8 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// M17 receive from demodulated dibits (the M17 specification: frames, FEC, LSF, LICH), our own implementation; no OS,
+// M17 receive from demodulated dibits and transmit as dibits (the M17 specification: frames, FEC, LSF, LICH), our own
+// implementation; no OS,
 // no hardware, also built on the PC (m17/c). Dibits as on the air: +3 1, +1 0, -1 2, -3 3; M17_DIBIT_ERASED: not
 // received (the HR_C7000's gaps).
 #ifndef M17_CORE_H
@@ -79,5 +80,18 @@ void m17_rx_reset(m17_rx *r);
 void m17_address(const uint8_t addr[6], char out[10]);
 // The LSF's TYPE: stream mode, voice (3200 bps), not encrypted
 bool m17_lsf_voice(const uint8_t lsf[M17_LSF_BYTES]);
+
+/* transmit: frames as dibits (192: 40 ms) */
+#define M17_FRAME_DIBITS 192
+
+// an LSF: to dst ("" or NULL: ALL, the broadcast) from src (callsigns, up to 9 characters), voice stream (3200),
+// the channel access number can (0 - 15)
+void m17_lsf_make(uint8_t lsf[M17_LSF_BYTES], const char *dst, const char *src, uint8_t can);
+// the preamble before an LSF (+3, -3 ...), the LSF, a stream frame (its LICH: chunk fn % 6 of lsf), the EoT
+void m17_tx_preamble(uint8_t out[M17_FRAME_DIBITS]);
+void m17_tx_lsf(const uint8_t lsf[M17_LSF_BYTES], uint8_t out[M17_FRAME_DIBITS]);
+void m17_tx_stream(const uint8_t lsf[M17_LSF_BYTES], uint16_t fn, bool last, const uint8_t data[M17_STREAM_BYTES],
+                   uint8_t out[M17_FRAME_DIBITS]);
+void m17_tx_eot(uint8_t out[M17_FRAME_DIBITS]);
 
 #endif

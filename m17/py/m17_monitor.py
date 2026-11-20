@@ -13,7 +13,8 @@ sys.path.insert(0, str(ROOT / "vocoder" / "py"))
 from radio_link import Link  # noqa: E402
 
 FIELDS = ("halves syncs lost streams bad_frames lsfs eots c2_frames pcm_drops underruns calls decode_us_max "
-          "busy_us_max").split()
+          "busy_us_max gain_sum").split()
+RAW_TAP = 12000  # samples (src/services/m17_radio.c M17_RAW_TAP)
 
 
 def main():
@@ -34,12 +35,12 @@ def main():
         print(", ".join("%s %d" % kv for kv in zip(FIELDS, struct.unpack("<%dI" % len(FIELDS), raw))))
         if args.raw:
             n = struct.unpack("<I", link.read(link.s["m17_raw_tap_n"], 4))[0]
-            size = 24000
+            size = 2 * RAW_TAP
             data = b"".join(link.read(link.s["m17_raw_tap"] + i, min(1024, size - i)) for i in range(0, size, 1024))
-            k = (n % 12000) * 2
-            args.raw.write_bytes(data[k:] + data[:k] if n >= 12000 else data[:2 * n])
+            k = (n % RAW_TAP) * 2
+            args.raw.write_bytes(data[k:] + data[:k] if n >= RAW_TAP else data[:2 * n])
             link.write(link.s["m17_raw_rearm"], struct.pack("<I", 1))
-            print("raw: %d samples (%d in all)" % (min(n, 12000), n))
+            print("raw: %d samples (%d in all)" % (min(n, RAW_TAP), n))
         if args.tap:
             n = struct.unpack("<I", link.read(link.s["m17_tap_n"], 4))[0]
             data = b"".join(link.read(link.s["m17_tap"] + i, 1024) for i in range(0, 4096, 1024))

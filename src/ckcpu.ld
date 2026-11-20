@@ -47,8 +47,8 @@ SECTIONS
 		. = ALIGN(0x4) ;
 		*crt0.o(.text)
 		__stext = . ;
-		*(EXCLUDE_FILE(*/startup/* */freertos/* */vocoder/ambe_enc* */p25/imbe/imbe_dec* */p25/imbe/imbe_parms* */p25/imbe/imbe_enc* */p25/imbe/imbe_ana.* */services/c2dec.o) .text)
-		*(EXCLUDE_FILE(*/startup/* */freertos/* */vocoder/ambe_enc* */p25/imbe/imbe_dec* */p25/imbe/imbe_parms* */p25/imbe/imbe_enc* */p25/imbe/imbe_ana.* */services/c2dec.o) .text*)
+		*(EXCLUDE_FILE(*/startup/* */freertos/* */vocoder/ambe_enc* */p25/imbe/imbe_dec* */p25/imbe/imbe_parms* */p25/imbe/imbe_enc* */p25/imbe/imbe_ana.* */services/c2dec.o */services/c2enc.o) .text)
+		*(EXCLUDE_FILE(*/startup/* */freertos/* */vocoder/ambe_enc* */p25/imbe/imbe_dec* */p25/imbe/imbe_parms* */p25/imbe/imbe_enc* */p25/imbe/imbe_ana.* */services/c2dec.o */services/c2enc.o) .text*)
 		. = ALIGN(0x10) ;
 		__etext = . ;
     } > MEM0
@@ -75,7 +75,7 @@ SECTIONS
     .rodata : {
 		. = ALIGN(0x4) ;
 		__srodata = . ;
-		*(EXCLUDE_FILE(*/services/c2dec.o) .rodata*)
+		*(EXCLUDE_FILE(*/services/c2dec.o */services/c2enc.o) .rodata*)
 		*(.flashconst*)
 		. = ALIGN(0x4) ;
 		__erodata = . ;
@@ -95,12 +95,12 @@ SECTIONS
 	.bss : {
 		. = ALIGN(0x4) ;
 		__bss_start = . ;
-		*(EXCLUDE_FILE(*/vocoder/ambe_* */p25/imbe/imbe_dec* */p25/imbe/imbe_parms* */p25/imbe/imbe_enc* */p25/imbe/imbe_ana.* */services/c2dec.o) .sbss)
-		*(EXCLUDE_FILE(*/vocoder/ambe_* */p25/imbe/imbe_dec* */p25/imbe/imbe_parms* */p25/imbe/imbe_enc* */p25/imbe/imbe_ana.* */services/c2dec.o) .sbss.*)
+		*(EXCLUDE_FILE(*/vocoder/ambe_* */p25/imbe/imbe_dec* */p25/imbe/imbe_parms* */p25/imbe/imbe_enc* */p25/imbe/imbe_ana.* */services/c2dec.o */services/c2enc.o) .sbss)
+		*(EXCLUDE_FILE(*/vocoder/ambe_* */p25/imbe/imbe_dec* */p25/imbe/imbe_parms* */p25/imbe/imbe_enc* */p25/imbe/imbe_ana.* */services/c2dec.o */services/c2enc.o) .sbss.*)
 		*(.scommon)
-		*(EXCLUDE_FILE(*/vocoder/ambe_* */p25/imbe/imbe_dec* */p25/imbe/imbe_parms* */p25/imbe/imbe_enc* */p25/imbe/imbe_ana.* */services/c2dec.o) .bss)
-		*(EXCLUDE_FILE(*/vocoder/ambe_* */p25/imbe/imbe_dec* */p25/imbe/imbe_parms* */p25/imbe/imbe_enc* */p25/imbe/imbe_ana.* */services/c2dec.o) .bss.*)
-		*(EXCLUDE_FILE(*/vocoder/ambe_* */p25/imbe/imbe_dec* */p25/imbe/imbe_parms* */p25/imbe/imbe_enc* */p25/imbe/imbe_ana.* */services/c2dec.o) COMMON)
+		*(EXCLUDE_FILE(*/vocoder/ambe_* */p25/imbe/imbe_dec* */p25/imbe/imbe_parms* */p25/imbe/imbe_enc* */p25/imbe/imbe_ana.* */services/c2dec.o */services/c2enc.o) .bss)
+		*(EXCLUDE_FILE(*/vocoder/ambe_* */p25/imbe/imbe_dec* */p25/imbe/imbe_parms* */p25/imbe/imbe_enc* */p25/imbe/imbe_ana.* */services/c2dec.o */services/c2enc.o) .bss.*)
+		*(EXCLUDE_FILE(*/vocoder/ambe_* */p25/imbe/imbe_dec* */p25/imbe/imbe_parms* */p25/imbe/imbe_enc* */p25/imbe/imbe_ana.* */services/c2dec.o */services/c2enc.o) COMMON)
 		. = ALIGN(0x10) ;
 		__end = . ;
 	} > MEM1
@@ -126,7 +126,7 @@ SECTIONS
 	   0x44400; fw_update.py checks the address and the size). Kept where and as large as it always was, so any
 	   version updates any other; the vocoder is in it, unused while the update runs.
 	   The P25 receiver's IMBE decoder (p25/c/imbe: its code, the tables of the hot loops, its state and the received
-	   audio) shares that RAM, and so does the M17 receiver's Codec 2 decoder (services/c2dec.c, its state): one overlay at a
+	   audio) shares that RAM, and so does M17's Codec 2 decoder and encoder (services/c2dec.c, c2enc.c, their state): one overlay at a
 	   time is loaded (dmr/vocoder.c overlay_use()), DMR, P25 or M17. */
 	__update_area_start = 0x00044400 ;
 	__update_area_end = 0x00056F24 ;
@@ -158,7 +158,9 @@ SECTIONS
 		.m17_overlay {
 			__m17_ram_start = . ;
 			*/services/c2dec.o(.text* .rodata*) /* the Codec 2 decoder, its tables */
+			*/services/c2enc.o(.text* .rodata*) /* the encoder (M17 transmit) */
 			*/services/c2dec.o(.sbss* .bss* COMMON)
+			*/services/c2enc.o(.sbss* .bss* COMMON)
 			*(.m17_bss*)
 			. = ALIGN(0x4) ;
 			__m17_ram_end = . ;

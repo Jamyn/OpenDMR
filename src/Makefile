@@ -38,8 +38,7 @@ ASFLAGS := $(CPU) $(addprefix -I,$(INCDIRS)) -MMD -MP
 ifeq ($(DEBUG),1)
 CFLAGS  += -DOPENDMR_DEBUG -DC2DEC_PROFILE
 DEBUG_KEEP := -Wl,--undefined=vocoder_bench -Wl,--undefined=p25_phy_capture -Wl,--undefined=p25_phy_stop \
-              -Wl,--undefined=p25_phy_tx_test -Wl,--undefined=nxdn_af_capture -Wl,--undefined=imbe_enc_test \
-              -Wl,--undefined=m17_codec2_bench
+              -Wl,--undefined=p25_phy_tx_test -Wl,--undefined=nxdn_af_capture -Wl,--undefined=imbe_enc_test
 endif
 LDFLAGS := $(CPU) -nostartfiles -Wl,--gc-sections -Wl,--undefined=serial_update_marker $(DEBUG_KEEP) \
            -Wl,-Map,$(TARGET).map -T ckcpu.ld

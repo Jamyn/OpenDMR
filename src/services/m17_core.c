@@ -52,6 +52,8 @@
 #define SYNC_ERRORS 3   // bits of a sync wrong at most where one is expected
 #define HUNT_METRIC 24  // a stream frame found hunting: coded bits wrong at most (of 272)
 
+static const char alphabet[] = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-/."; // the callsigns' base 40
+
 static const uint8_t randomizer[46] = {
     0xd6, 0xb5, 0xe2, 0x30, 0x82, 0xff, 0x84, 0x62, 0xba, 0x4e, 0x96, 0x90, 0xd8, 0x98, 0xdd, 0x5d,
     0x0c, 0xc8, 0x52, 0x43, 0x91, 0x1d, 0xf8, 0x6e, 0x68, 0x2f, 0x35, 0xda, 0x14, 0xea, 0xcd, 0x76,
@@ -345,7 +347,6 @@ m17_rx_event_t m17_rx_dibit(m17_rx *r, uint8_t dibit)
 
 void m17_address(const uint8_t addr[6], char out[10])
 {
-    static const char alphabet[] = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-/.";
     uint64_t v = 0;
     for (int i = 0; i < 6; i++) {
         v = (v << 8) | addr[i];
@@ -372,4 +373,132 @@ void m17_address(const uint8_t addr[6], char out[10])
 bool m17_lsf_voice(const uint8_t lsf[M17_LSF_BYTES])
 {
     return (lsf[13] & 0x1F) == 0x05; // stream, voice (3200), not encrypted
+}
+
+/* ---- transmit ---- */
+
+static unsigned get_bit(const uint8_t *bytes, unsigned i)
+{
+    return (bytes[i >> 3] >> (7 - (i & 7))) & 1;
+}
+
+static void put_bit(uint8_t *bytes, unsigned i, unsigned b)
+{
+    if (b) {
+        bytes[i >> 3] |= (uint8_t)(0x80 >> (i & 7));
+    }
+}
+
+// a callsign in base 40 (the first character the lowest digit), 6 bytes
+static void encode_address(const char *s, uint8_t out[6])
+{
+    uint64_t v = 0, m = 1;
+    if (!s || !*s) {
+        v = 0xFFFFFFFFFFFFULL; // ALL
+    }
+    for (int i = 0; s && s[i] && (i < 9); i++, m *= 40) {
+        char c = s[i];
+        if ((c >= 'a') && (c <= 'z')) {
+            c = (char)(c - 'a' + 'A');
+        }
+        const char *p = strchr(alphabet, c);
+        v += (uint64_t)((p && c) ? (p - alphabet) : 0) * m;
+    }
+    for (int i = 5; i >= 0; i--, v >>= 8) {
+        out[i] = (uint8_t)v;
+    }
+}
+
+void m17_lsf_make(uint8_t lsf[M17_LSF_BYTES], const char *dst, const char *src, uint8_t can)
+{
+    memset(lsf, 0, M17_LSF_BYTES);
+    encode_address(dst, lsf);
+    encode_address(src, lsf + 6);
+    // TYPE: stream, voice (3200), not encrypted, META none (text, control byte 0), the CAN in bits 7 - 10
+    lsf[12] = (uint8_t)((can >> 1) & 0x07);
+    lsf[13] = (uint8_t)(0x05 | ((can & 1) << 7));
+    uint16_t crc = crc16(lsf, M17_LSF_BYTES - 2);
+    lsf[28] = (uint8_t)(crc >> 8);
+    lsf[29] = (uint8_t)crc;
+}
+
+// length data bits and 4 flush bits through the convolutional code, punctured (P1 LSF, P2 stream), from coded bit pos
+static unsigned conv_encode(const uint8_t *data, unsigned length, bool stream, uint8_t *coded, unsigned pos)
+{
+    unsigned state = 0, c = 0;
+    for (unsigned i = 0; i < length + 4; i++) {
+        state = ((state << 1) | ((i < length) ? get_bit(data, i) : 0)) & 31;
+        unsigned out[2] = {parity(state & 0x19), parity(state & 0x17)};
+        for (int o = 0; o < 2; o++, c++) {
+            bool kept = stream ? (c % 12 != 11) : ((c % 61) % 4 != 2);
+            if (kept) {
+                put_bit(coded, pos++, out[o]);
+            }
+        }
+    }
+    return pos;
+}
+
+// the sync, then the 368 coded bits interleaved and randomized
+static void tx_frame(uint16_t sync, const uint8_t coded[BITS / 8], uint8_t out[M17_FRAME_DIBITS])
+{
+    uint8_t bits[BITS / 8] = {0};
+    for (unsigned i = 0; i < BITS; i++) {
+        put_bit(bits, (45 * i + 92 * i * i) % BITS, get_bit(coded, i));
+    }
+    for (unsigned i = 0; i < BITS / 8; i++) {
+        bits[i] ^= randomizer[i];
+    }
+    for (unsigned i = 0; i < 8; i++) {
+        out[i] = (uint8_t)((sync >> (14 - 2 * i)) & 3);
+    }
+    for (unsigned i = 0; i < PAYLOAD; i++) {
+        out[8 + i] = (uint8_t)((bits[i >> 2] >> (6 - 2 * (i & 3))) & 3);
+    }
+}
+
+void m17_tx_preamble(uint8_t out[M17_FRAME_DIBITS])
+{
+    for (unsigned i = 0; i < M17_FRAME_DIBITS; i++) {
+        out[i] = (i & 1) ? 3 : 1; // +3, -3
+    }
+}
+
+void m17_tx_lsf(const uint8_t lsf[M17_LSF_BYTES], uint8_t out[M17_FRAME_DIBITS])
+{
+    uint8_t coded[BITS / 8] = {0};
+    conv_encode(lsf, 240, false, coded, 0);
+    tx_frame(LSF_SYNC, coded, out);
+}
+
+void m17_tx_stream(const uint8_t lsf[M17_LSF_BYTES], uint16_t fn, bool last, const uint8_t data[M17_STREAM_BYTES],
+                   uint8_t out[M17_FRAME_DIBITS])
+{
+    uint8_t coded[BITS / 8] = {0};
+    unsigned n = fn % 6, pos = 0;
+    // the LICH: 40 bits of the LSF and the chunk number, 4 Golay(24, 12) words
+    uint8_t chunk[6];
+    memcpy(chunk, &lsf[5 * n], 5);
+    chunk[5] = (uint8_t)(n << 5);
+    for (unsigned w = 0; w < 4; w++) {
+        uint16_t v = (w & 1) ? (uint16_t)(((chunk[3 * (w / 2) + 1] & 0x0F) << 8) | chunk[3 * (w / 2) + 2])
+                             : (uint16_t)((chunk[3 * (w / 2)] << 4) | (chunk[3 * (w / 2) + 1] >> 4));
+        uint32_t cw = ((uint32_t)v << 12) | golay_mul(golay_p, v);
+        for (int i = 23; i >= 0; i--) {
+            put_bit(coded, pos++, (cw >> i) & 1);
+        }
+    }
+    uint8_t d[18];
+    d[0] = (uint8_t)(((fn >> 8) & 0x7F) | (last ? 0x80 : 0));
+    d[1] = (uint8_t)fn;
+    memcpy(&d[2], data, M17_STREAM_BYTES);
+    conv_encode(d, 144, true, coded, pos);
+    tx_frame(STREAM_SYNC, coded, out);
+}
+
+void m17_tx_eot(uint8_t out[M17_FRAME_DIBITS])
+{
+    for (unsigned i = 0; i < M17_FRAME_DIBITS; i++) {
+        out[i] = (uint8_t)((EOT_SYNC >> (14 - 2 * (i & 7))) & 3);
+    }
 }

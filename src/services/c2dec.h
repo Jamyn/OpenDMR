@@ -56,6 +56,11 @@ typedef struct {
     uint32_t arg_h[C2DEC_BINS + 1]; // the synthesis filter's phase where a harmonic samples it
 } c2dec_t;
 
+// shared with the encoder (c2enc.c)
+extern const int16_t c2_sintab[1024];       // sin, Q15, 1024 a turn
+int32_t c2_ilog2(uint64_t x);               // log2(x), x > 0, Q16
+uint32_t c2_cordic_angle(int32_t x, int32_t y); // the angle of (x, y), 2^32: 2 pi
+
 void c2dec_init(c2dec_t *d);
 void c2dec_decode(c2dec_t *d, const uint8_t frame[C2DEC_BYTES], int16_t pcm[C2DEC_SAMPLES]);
 

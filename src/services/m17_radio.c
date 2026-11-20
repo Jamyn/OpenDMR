@@ -32,12 +32,16 @@
  * As the NXDN receiver (nxdn_radio.c): the modem records its AF input (the FD6818's discriminator, 8 kHz, here without
  * the de-emphasis) in halves of 256 samples; the task reads each half as the modem finishes it into m17_demod.c (4FSK
  * in software: the syncs found by correlation, the timing, gain and DC from each), whose dibits go into m17_core.c
- * (frames, FEC, LSF / LICH). Each stream frame's two Codec 2 3200 frames are decoded (c2dec.c) into a queue of 20 ms
- * frames; a second, small task feeds them into the prompt FIFO (8 kHz, the beeps' path), which plays while the modem
- * records.
+ * (frames, FEC, LSF / LICH). Each stream frame's two Codec 2 3200 frames are decoded (c2dec.c) into the playback's
+ * queue of 20 ms frames (voice_play.c: into the prompt FIFO, the beeps' path, which plays while the modem records).
  *
- * The demodulator's and the receiver's state, the decoder and the task's stack live in the M17 overlay RAM (ckcpu.ld):
- * the task is created when the receiver starts, after the overlay is loaded, and deleted when it stops.
+ * Transmit (transmit(), the PTT): the recording stopped, the mic's 20 ms frames through our Codec 2 3200 encoder
+ * (c2enc.c), two a stream frame (m17_core.c: the preamble, the LSF from the radio's callsign to ALL, stream frames, the
+ * last with its end bit, the EoT), the dibits through the P25 physical layer's transmit FIFO (4800 symbols/s, as M17),
+ * the modem's 4FSK level scaled to M17's deviation (m17_tx_dev).
+ *
+ * The demodulator's and the receiver's state, the decoder, the encoder and the task's stack live in the M17 overlay
+ * RAM (ckcpu.ld): the task is created when the receiver starts, after the overlay is loaded, and deleted when it stops.
  */
 
 #include <string.h>
@@ -53,30 +57,47 @@
 #include "radio_hooks.h"
 #include "p25_phy.h"
 #include "c2dec.h"
+#include "c2enc.h"
+#include "codeplug.h"
+#include "dmr_compat.h"
 #include "m17_core.h"
 #include "m17_demod.h"
 #include "m17_radio.h"
 #include "ui.h"
+#include "voice_play.h"
 
 #define FM_BW         0x0F // the recording's FM_BANDWIDTH: no band-pass, no de-emphasis (NXDN: 0x1F)
 #define PCM_FRAMES    16   // 320 ms of decoded voice
 #define PLAY_START    4    // frames queued before the playback starts (they come two at a time every 40 ms)
 #define CALL_TIMEOUT  400  // ms without a stream frame: the call ended
-#define AMP_START_MS  75   // the amplifier on before the voice (sound.c)
 #define POLL_MS       4    // the recording looked at this often (a half is 32 ms)
 #define VOICE_METRIC  24   // a stream frame with more coded bits wrong: its voice not played (silence)
-#define STACK_WORDS   1536 // 6 KB: c2dec ~3.5 KB, the Viterbi 0.5 KB
+// the test sweep (m17_tx_source 1): 300 Hz to 3 kHz in 2 s, again and again, a quarter of full scale
+#define SWEEP_LO      161061273U  // 300 Hz: 2^32 300 / 8000 a sample
+#define SWEEP_HI      1610612736U // 3 kHz
+#define SWEEP_STEP    90597U      // (HI - LO) / 16000 a sample
+#define STACK_WORDS   1536 // 6 KB: c2dec ~3.5 KB, the Viterbi 0.5 KB; c2enc ~2 KB
 
 #define OVERLAY_BSS __attribute__((section(".m17_bss"))) // in the M17 overlay, zeroed by its load
 
 volatile m17_radio_stats_t m17_radio_stats;
+volatile uint32_t m17_tx_dev = 1365;  // the 4FSK level (MODEM_MOD_SCALE_ONE: P25's +-1.8 kHz) for M17's +-2.4 kHz
+volatile uint32_t m17_tx_low_power;   // not 0: 50 mW (tests with the radios side by side)
+volatile uint32_t m17_tx_source;      // 0 the mic; 1 a test sweep (tests: m17/py/m17_tx_check.py)
+volatile uint32_t m17_tx_stats[4];    // calls, stream frames, the longest Codec 2 encoding (us), underruns
 
 /* in the overlay */
 static m17_demod dm OVERLAY_BSS;
 static m17_rx rx OVERLAY_BSS;
-static c2dec_t dec OVERLAY_BSS;
-static int16_t pcm[PCM_FRAMES][C2DEC_SAMPLES] OVERLAY_BSS;
+static union {
+    struct {
+        c2dec_t dec;
+        int16_t pcm[PCM_FRAMES][C2DEC_SAMPLES];
+    } rx;
+    c2enc_t enc; // transmitting: the decoder and the playback queue unused (both set up again after)
+} mem OVERLAY_BSS;
 static int16_t half[256] OVERLAY_BSS;
+static uint8_t tx_dibits[M17_FRAME_DIBITS] OVERLAY_BSS;
 static StackType_t task_stack[STACK_WORDS] OVERLAY_BSS;
 // for tools over the cable (m17/py/m17_monitor.py): the dibits given to m17_core.c (5: the demodulator lost the
 // signal), the last ones; the recording, the last M17_RAW_TAP samples, held RAW_HOLD samples after a call began (the
@@ -90,25 +111,25 @@ int16_t m17_raw_tap[M17_RAW_TAP] OVERLAY_BSS;
 uint32_t m17_raw_tap_n OVERLAY_BSS;
 uint32_t m17_raw_hold OVERLAY_BSS; // samples still to take (0: taking all the time; set once a call began)
 volatile uint32_t m17_raw_rearm; // over the cable: not 0, the recording tap taking again
+volatile uint32_t m17_raw_source; // over the cable: 1, the recording tap takes the first samples played in a call
 
-static volatile uint32_t pcm_in, pcm_out; // frames put in / taken out (the feeder's)
-static uint32_t pcm_pos;                  // samples of pcm[pcm_out] already in the FIFO (the feeder's)
 
-static StaticTask_t task_tcb, feed_tcb;
-static StackType_t feed_stack[192];
-static TaskHandle_t task, feeder;
+static StaticTask_t task_tcb;
+static TaskHandle_t task;
 static volatile bool running;
 static volatile bool busy; // the task is using the overlay
+
+/* transmit: the PTT (m17_radio_transmit()) */
+static volatile bool tx_want, tx_busy;
+static volatile bool tx_on; // transmitting: the receiver and the playback off
+static volatile uint8_t tx_can;
+static uint8_t tx_lsf[M17_LSF_BYTES];
 
 static m17_call_t call;
 static TickType_t last_frame;
 static volatile TickType_t heard_at;
 static volatile bool heard;
 
-/* the playback, the feeder's: 0 off, 1 the amplifier starting, 2 playing */
-static volatile int play_state;
-static TickType_t play_since;
-static volatile bool play_wanted;
 
 /* ---- the call ---- */
 
@@ -124,9 +145,12 @@ static void call_begin(void)
     if (!call.active) {
         memset(&call, 0, sizeof(call));
         call.active = true;
-        c2dec_init(&dec);
+        c2dec_init(&mem.rx.dec);
         m17_radio_stats.calls++;
-        if (!m17_raw_hold) {
+        if (m17_raw_source == 1) { // the played audio from the call's start
+            m17_raw_hold = 1;
+            m17_raw_tap_n = 0;
+        } else if (!m17_raw_hold) {
             m17_raw_hold = RAW_HOLD;
         }
         call_publish();
@@ -136,7 +160,7 @@ static void call_begin(void)
 static void call_end(void)
 {
     call.active = false;
-    play_wanted = false; // the feeder plays out what is queued, then stops
+    voice_play_end(); // what is queued played out, then the speaker off
     call_publish();
 }
 
@@ -165,25 +189,22 @@ static void voice(const uint8_t stream[M17_STREAM_BYTES], bool good)
 {
     uint32_t t0 = systime_get_us();
     for (int h = 0; h < 2; h++) {
-        if ((pcm_in - pcm_out) >= PCM_FRAMES) { // the feeder fell behind: the newest frame dropped
+        int16_t *out = voice_play_frame();
+        if (!out) { // the playback fell behind: the newest frame dropped
             m17_radio_stats.pcm_drops++;
             continue;
         }
-        int16_t *out = pcm[pcm_in % PCM_FRAMES];
         if (good && !call.muted) {
-            c2dec_decode(&dec, stream + C2DEC_BYTES * h, out);
+            c2dec_decode(&mem.rx.dec, stream + C2DEC_BYTES * h, out);
         } else {
-            memset(out, 0, sizeof(pcm[0]));
+            memset(out, 0, sizeof(mem.rx.pcm[0]));
         }
-        pcm_in++;
+        voice_play_put();
         m17_radio_stats.c2_frames++;
     }
     uint32_t us = systime_get_us() - t0;
     if (us > m17_radio_stats.decode_us_max) {
         m17_radio_stats.decode_us_max = us;
-    }
-    if ((pcm_in - pcm_out) >= PLAY_START) {
-        play_wanted = true;
     }
 }
 
@@ -205,6 +226,7 @@ static void on_dibit(void *ctx, uint8_t d)
         break;
     case M17_RX_STREAM:
         m17_radio_stats.streams++;
+        m17_radio_stats.gain_sum += (uint32_t)dm.g;
         if (rx.metric > VOICE_METRIC) {
             m17_radio_stats.bad_frames++;
             if (!call.active) {
@@ -234,81 +256,180 @@ static void on_dibit(void *ctx, uint8_t d)
     }
 }
 
-/* ---- the playback: the prompt FIFO (8 kHz, 16 bits little endian, MODEM_BEEP_BLOCK bytes a write) ---- */
+/* ---- the playback (voice_play.c) ---- */
 
-static void play_on(bool on)
+// the voice played (the recording tap: m17_raw_source 1, the call's first samples)
+static void play_tap(const int16_t *x, int n)
 {
-    if (on) {
-        radio_beep_path(true);
-        modem_beep(true);
-        radio_dmr_audio(true);
-        leds_green(true);
-    } else {
-        radio_dmr_audio(false);
-        modem_beep(false);
-        radio_beep_path(false);
-        leds_green(false);
+    for (int i = 0; (i < n) && (m17_raw_source == 1) && (m17_raw_tap_n < M17_RAW_TAP); i++) {
+        m17_raw_tap[m17_raw_tap_n++] = x[i];
     }
 }
 
-static void feed_task(void *arg)
-{
-    uint8_t block[MODEM_BEEP_BLOCK];
+static const voice_play_cfg_t play_cfg = {
+    .frames = mem.rx.pcm,
+    .count = PCM_FRAMES,
+    .start = PLAY_START,
+    .underruns = &m17_radio_stats.underruns,
+    .tap = play_tap,
+};
 
-    (void)arg;
-    for (;;) {
-        vTaskDelay(1);
-        int state = play_state;
-        if (state == 0) {
-            if (running && play_wanted) {
-                play_on(true);
-                play_since = xTaskGetTickCount();
-                play_state = 1;
-            }
-            continue;
+/* ---- transmit ---- */
+
+// the receiver, the demodulator and the decoder from the start (the recording on)
+static void receive_init(void)
+{
+    m17_demod_init(&dm, on_dibit, NULL);
+    m17_rx_init(&rx);
+    c2dec_init(&mem.rx.dec);
+    voice_play_start(&play_cfg);
+}
+
+/* The mic: its ADC has a large DC (~2400, after ~12000 at the start), which Codec 2 (made for AC coupled input) would
+   code as a low tone in the pauses: a DC block (y = x - x1 + (1 - 1/64) y1, ~20 Hz) first. The raw samples also go
+   into the recording tap (m17/py/m17_monitor.py --raw: the first 1.5 s of the transmission's mic). */
+typedef struct {
+    bool started; // x1 the first sample: no step from 0 to the DC (a click as loud as speech, 2026-11-20)
+    int32_t x1;
+    int32_t y1; // Q8
+} mic_hp_t;
+
+static void mic_filter(int16_t *x, mic_hp_t *hp)
+{
+    if (!hp->started) {
+        hp->started = true;
+        hp->x1 = x[0];
+    }
+    for (int i = 0; i < C2DEC_N; i++) {
+        if (m17_raw_tap_n < M17_RAW_TAP) {
+            m17_raw_tap[m17_raw_tap_n++] = x[i];
         }
-        if (state == 1) { // the amplifier starting: silence meanwhile, the voice kept queued
-            if (!modem_beep_fifo_full()) {
-                memset(block, 0, sizeof(block));
-                modem_beep_write(block);
-            }
-            if ((xTaskGetTickCount() - play_since) >= pdMS_TO_TICKS(AMP_START_MS)) {
-                play_state = 2;
-            }
-            continue;
+        int32_t y = ((x[i] - hp->x1) << 8) + hp->y1 - (hp->y1 >> 6);
+        hp->x1 = x[i];
+        hp->y1 = y;
+        y >>= 8;
+        x[i] = (int16_t)((y > 32767) ? 32767 : (y < -32768) ? -32768 : y);
+    }
+}
+
+/* A transmission while tx_want (the PTT) stays set: the playback and the recording off, the preamble and the LSF into
+   the FIFO and the transmitter keyed (80 ms: the first stream frame comes 40 ms of mic and two encodings later); then a
+   stream frame for every two mic frames (40 ms). The PTT released: the frame finished with silence and sent as the
+   last, the EoT; once sent, back to receive. */
+static void transmit(void)
+{
+    tx_busy = true;
+    if (call.active) {
+        call_end();
+    }
+    tx_on = true;
+    voice_play_stop(); // the playback off: the encoder takes its queue's RAM (mem)
+    nxdn_fm_stop();
+    sound_mic_start();
+    p25_phy_tx_reset();
+    modem_set_mod_scale(m17_tx_dev);
+    c2enc_init(&mem.enc);
+    m17_tx_stats[0]++;
+    m17_tx_stats[1] = 0;
+
+    char src[16];
+    codeplug_get_radio_name(src);
+    src[9] = 0;
+    m17_lsf_make(tx_lsf, NULL, src, tx_can);
+    m17_tx_preamble(tx_dibits);
+    p25_phy_tx_put(tx_dibits, M17_FRAME_DIBITS);
+    m17_tx_lsf(tx_lsf, tx_dibits);
+    p25_phy_tx_put(tx_dibits, M17_FRAME_DIBITS);
+    bool started = (p25_phy_tx_begin(m17_tx_low_power != 0) == 0);
+    int16_t pcm_tx[C2DEC_SAMPLES];
+    uint8_t data[M17_STREAM_BYTES];
+    uint32_t tone = 0, step = SWEEP_LO; // the test sweep's phase and its step a sample (2^32: 2 pi)
+    mic_hp_t hp = {0};
+    m17_raw_hold = 1; // the recording tap: the mic's first samples (mic_filter()), kept after
+    m17_raw_tap_n = 0;
+    int halves = 0, nc = 0;
+    uint16_t fn = 0;
+    bool ending = false;
+    while (started) {
+        if (!tx_want) {
+            ending = true;
         }
-        while (running && !modem_beep_fifo_full()) {
-            if (pcm_in == pcm_out) {
-                if (!play_wanted) {
-                    break;
+        if (ending) { // silence to the end of the stream frame
+            memset(&pcm_tx[C2DEC_N * halves], 0, sizeof(int16_t) * C2DEC_N * (unsigned)(2 - halves));
+            halves = 0;
+        } else if (sound_mic_take(&pcm_tx[C2DEC_N * halves])) {
+            int16_t *x = &pcm_tx[C2DEC_N * halves];
+            if (m17_tx_source == 1) { // the mic's timing, the sweep's samples
+                for (int i = 0; i < C2DEC_N; i++) {
+                    x[i] = (int16_t)(c2_sintab[tone >> 22] >> 2);
+                    tone += step;
+                    step = (step + SWEEP_STEP > SWEEP_HI) ? SWEEP_LO : step + SWEEP_STEP;
                 }
-                m17_radio_stats.underruns++;
-                memset(block, 0, sizeof(block));
-                modem_beep_write(block);
-                break;
+            } else {
+                mic_filter(x, &hp);
             }
-            const int16_t *frame = pcm[pcm_out % PCM_FRAMES];
-            for (int i = 0; i < (MODEM_BEEP_BLOCK / 2); i++) {
-                int16_t s = frame[pcm_pos + (uint32_t)i];
-                block[2 * i] = (uint8_t)s;
-                block[2 * i + 1] = (uint8_t)((uint16_t)s >> 8);
+            if (++halves < 2) {
+                continue;
             }
-            modem_beep_write(block);
-            pcm_pos += MODEM_BEEP_BLOCK / 2;
-            if (pcm_pos >= C2DEC_SAMPLES) {
-                pcm_pos = 0;
-                pcm_out++;
-            }
+            halves = 0;
+        } else {
+            vTaskDelay(pdMS_TO_TICKS(2));
+            continue;
         }
-        if (!running || (!play_wanted && (pcm_in == pcm_out))) {
-            play_on(false);
-            pcm_pos = 0;
-            if (!running) {
-                pcm_out = pcm_in;
-            }
-            play_state = 0;
+        uint32_t t0 = systime_get_us();
+        c2enc_encode(&mem.enc, pcm_tx, &data[C2DEC_BYTES * nc]);
+        uint32_t us = systime_get_us() - t0;
+        if (us > m17_tx_stats[2]) {
+            m17_tx_stats[2] = us;
+        }
+        if (++nc < 2) {
+            continue;
+        }
+        nc = 0;
+        m17_tx_stream(tx_lsf, fn, ending, data, tx_dibits);
+        p25_phy_tx_put(tx_dibits, M17_FRAME_DIBITS);
+        fn = (uint16_t)((fn + 1) & 0x7FFF);
+        m17_tx_stats[1]++;
+        if (ending) {
+            break;
         }
     }
+    if (started) {
+        m17_tx_eot(tx_dibits);
+        p25_phy_tx_put(tx_dibits, M17_FRAME_DIBITS);
+        p25_phy_tx_pad(); // the last block whole: sent
+        while ((p25_phy_tx_level() >= P25_PHY_BLOCK_BYTES * 4) && (p25_phy_tx_underrun < 10)) {
+            vTaskDelay(pdMS_TO_TICKS(5));
+        }
+        vTaskDelay(pdMS_TO_TICKS(60)); // the last blocks out of the modem
+        p25_phy_tx_end();
+        m17_tx_stats[3] = p25_phy_tx_underrun;
+    }
+    modem_set_mod_scale(MODEM_MOD_SCALE_ONE);
+    soundStopMicCapture();
+
+    m17_raw_hold = 1; // the mic's samples kept for the cable until m17_raw_rearm
+
+    // back to receive
+    nxdn_fm_start_bw(FM_BW);
+    receive_init();
+    tx_on = false;
+    tx_busy = false;
+}
+
+void m17_radio_set_can(uint8_t can)
+{
+    tx_can = can & 0x0F;
+}
+
+void m17_radio_transmit(bool on)
+{
+    tx_want = on;
+}
+
+bool m17_radio_transmitting(void)
+{
+    return tx_want || tx_busy;
 }
 
 /* ---- the receive task ---- */
@@ -319,6 +440,9 @@ static void task_main(void *arg)
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(POLL_MS));
         busy = true;
+        if (running && tx_want) {
+            transmit();
+        }
         if (!running) {
             busy = false;
             continue;
@@ -357,22 +481,13 @@ void m17_radio_start(void)
     if (running) {
         return;
     }
-    if (!feeder) {
-        feeder = xTaskCreateStatic(feed_task, "m17a", sizeof(feed_stack) / sizeof(feed_stack[0]), NULL,
-                                   tskIDLE_PRIORITY + 4, feed_stack, &feed_tcb);
-    }
     if (!nxdn_fm_start_bw(FM_BW)) {
         return;
     }
     vTaskDelay(pdMS_TO_TICKS(5));
-    overlay_use(OVERLAY_M17);
-    m17_demod_init(&dm, on_dibit, NULL);
-    m17_rx_init(&rx);
-    c2dec_init(&dec);
+    overlay_claim(OVERLAY_M17);
+    receive_init();
     memset(&call, 0, sizeof(call));
-    pcm_in = pcm_out = 0;
-    pcm_pos = 0;
-    play_wanted = false;
     heard = false;
     running = true;
     task = xTaskCreateStatic(task_main, "m17", STACK_WORDS, NULL, tskIDLE_PRIORITY + 3, task_stack, &task_tcb);
@@ -384,13 +499,15 @@ void m17_radio_stop(void)
         return;
     }
     running = false;
-    while (busy || (play_state != 0)) { // the tasks done with the overlay and the prompt path
+    while (busy) { // the task done with the overlay
         vTaskDelay(1);
     }
+    voice_play_stop(); // the playback too
     TaskHandle_t t = task;
     task = NULL;
     vTaskDelete(t);
     nxdn_fm_stop();
+    overlay_release(OVERLAY_M17);
     call.active = false;
     call_publish();
 }

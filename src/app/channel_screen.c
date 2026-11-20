@@ -889,6 +889,14 @@ static void draw(void)
         }
         bottom.mode = "NXDN";
         bottom.item2 = "6.25K";
+    } else if (channel.mode == CODEPLUG_MODE_M17) {
+        // M17: to ALL (m17_radio.h), the CAN on its line
+        snprintf(cc_text, sizeof(cc_text), "CAN %u", (unsigned)codeplug_m17_can(&channel));
+        panel.line_icon = ICONS_TALKGROUP;
+        panel.line_text = text(TEXT_ALL);
+        panel.line_right = cc_text;
+        bottom.mode = "M17";
+        bottom.item2 = "12.5K";
     } else {
         uint16_t tone = (channel.rx_tone != CODEPLUG_CSS_NONE) ? channel.rx_tone : channel.tx_tone;
 

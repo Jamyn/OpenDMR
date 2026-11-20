@@ -79,7 +79,7 @@ static inline bool codeplug_mode_is_ssb(uint8_t mode)
 static inline bool codeplug_mode_can_transmit(uint8_t mode)
 {
     return (mode == CODEPLUG_MODE_FM) || (mode == CODEPLUG_MODE_DMR) || (mode == CODEPLUG_MODE_P25) ||
-           (mode == CODEPLUG_MODE_NXDN);
+           (mode == CODEPLUG_MODE_NXDN) || (mode == CODEPLUG_MODE_M17);
 }
 
 const char *codeplug_mode_name(uint8_t mode);  // "FM", "DMR", "AM", "USB", "LSB", "P25", "NXDN", "M17"
@@ -151,6 +151,18 @@ static inline uint8_t codeplug_nxdn_ran(const codeplug_channel_t *channel)
 static inline void codeplug_set_nxdn_ran(codeplug_channel_t *channel, uint8_t ran)
 {
     channel->tx_colour = (ran <= CODEPLUG_NXDN_RAN_MAX) ? ran : CODEPLUG_NXDN_RAN_DEFAULT;
+}
+
+// M17 channels (and VFOs): the CAN (channel access number), 0 - 15, in DMR's colour code byte (as NXDN's RAN); out
+// of range (a P25 NAC's low byte, a RAN over 15): 0. Transmitted in the LSF; any received (m17_radio.c)
+#define CODEPLUG_M17_CAN_MAX 15
+static inline uint8_t codeplug_m17_can(const codeplug_channel_t *channel)
+{
+    return (channel->tx_colour <= CODEPLUG_M17_CAN_MAX) ? channel->tx_colour : 0;
+}
+static inline void codeplug_set_m17_can(codeplug_channel_t *channel, uint8_t can)
+{
+    channel->tx_colour = (can <= CODEPLUG_M17_CAN_MAX) ? can : 0;
 }
 
 typedef struct {

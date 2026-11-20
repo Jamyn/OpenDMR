@@ -69,7 +69,9 @@ static uint32_t prof_t;
 #define DB_PER_L2   197283       // 10 log10(2), Q16
 #define L2_PER_DB20 10885        // log2(10) / 20, Q16
 
-static const int16_t sintab[1024] = {
+#define sintab c2_sintab
+
+const int16_t c2_sintab[1024] = { // sin, Q15, 1024 a turn (also c2enc.c)
          0,    201,    402,    603,    804,   1005,   1206,   1407,   1608,   1809,   2009,   2210,   2410,   2611,   2811,   3012,
       3212,   3412,   3612,   3811,   4011,   4210,   4410,   4609,   4808,   5007,   5205,   5404,   5602,   5800,   5998,   6195,
       6393,   6590,   6786,   6983,   7179,   7375,   7571,   7767,   7962,   8157,   8351,   8545,   8739,   8933,   9126,   9319,
@@ -229,7 +231,7 @@ static int32_t ilog2_32(uint32_t x)
     return n * ONE + (int32_t)(log2tab[i] + (((log2tab[i + 1] - log2tab[i]) * t) >> 16));
 }
 
-static int32_t ilog2(uint64_t x)
+int32_t c2_ilog2(uint64_t x)
 {
     uint32_t hi = (uint32_t)(x >> 32);
     if (!hi) {
@@ -267,14 +269,14 @@ static int32_t log2_sum(const int32_t *v, unsigned lo, unsigned hi)
     for (unsigned i = lo; i < hi; i++) {
         acc += iexp2_neg(v[i] - max);
     }
-    return ilog2(acc) - 30 * ONE + max;
+    return c2_ilog2(acc) - 30 * ONE + max;
 }
 
 // log2(2^a + 2^b)
 static int32_t log2_add(int32_t a, int32_t b)
 {
     int32_t hi = a > b ? a : b, lo = a > b ? b : a;
-    return hi + ilog2((1ULL << 30) + iexp2_neg(lo - hi)) - 30 * ONE;
+    return hi + c2_ilog2((1ULL << 30) + iexp2_neg(lo - hi)) - 30 * ONE;
 }
 
 // v (not 0) as m 2^e: |m| in [2^14, 2^15), the shift added to *e
@@ -332,7 +334,7 @@ static bool lpc_spectrum(const int32_t r[10], uint32_t w, int32_t *x, int32_t *y
 }
 
 // the angle of (x, y), 2^32: 2 pi
-static uint32_t cordic_angle(int32_t x, int32_t y)
+uint32_t c2_cordic_angle(int32_t x, int32_t y)
 {
     uint32_t z = 0;
     if (x < 0) {
@@ -436,7 +438,7 @@ static void subframe(c2dec_t *d, const c2dec_model_t *mdl, int16_t *pcm)
         int32_t x = 0, y = 0, e = 0;
         bool nonzero = lpc_spectrum(r, w, &x, &y, &e);
         if ((need[k >> 5] >> (k & 31)) & 1) {
-            d->arg_h[k] = 5 * w + (w >> 1) - (nonzero ? cordic_angle(x << 13, y << 13) : 0); // -arg A
+            d->arg_h[k] = 5 * w + (w >> 1) - (nonzero ? c2_cordic_angle(x << 13, y << 13) : 0); // -arg A
         }
         if (k == BINS) {
             break;
@@ -482,7 +484,7 @@ static void subframe(c2dec_t *d, const c2dec_model_t *mdl, int16_t *pcm)
         a2m[m] = (la[m] > NEG) ? 2 * la[m] : NEG;
     }
     int32_t s = log2_sum(a2m, 1, L + 1);
-    int32_t level = (s > NEG) ? (int32_t)(((int64_t)(s - ilog2(L)) * DB_PER_L2) >> 16) : -120 * ONE;
+    int32_t level = (s > NEG) ? (int32_t)(((int64_t)(s - c2_ilog2(L)) * DB_PER_L2) >> 16) : -120 * ONE;
     if (level < 40 * ONE && !mdl->voiced) {
         d->bg = d->bg - d->bg / 10 + level / 10;
     }

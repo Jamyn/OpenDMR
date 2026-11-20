@@ -945,6 +945,7 @@ static void draw(void)
     dmr_call_t call;
     p25_call_t p25;
     nxdn_call_t nxdn;
+    m17_call_t m17;
 
     if ((v->mode == CODEPLUG_MODE_DMR) && !digit_entry_active(&entry) && dmr_call(&call)) {
         snprintf(buffer, sizeof(buffer), "VFO %c", (vfo_screen_current() == 0) ? 'A' : 'B');
@@ -959,6 +960,11 @@ static void draw(void)
     if ((v->mode == CODEPLUG_MODE_NXDN) && !digit_entry_active(&entry) && nxdn_radio_call(&nxdn) && (nxdn.src != 0)) {
         snprintf(buffer, sizeof(buffer), "VFO %c", (vfo_screen_current() == 0) ? 'A' : 'B');
         qso_panel_draw_nxdn(&nxdn, buffer, power_text(v));
+        return;
+    }
+    if ((v->mode == CODEPLUG_MODE_M17) && !digit_entry_active(&entry) && m17_radio_call(&m17) && m17.src[0]) {
+        snprintf(buffer, sizeof(buffer), "VFO %c", (vfo_screen_current() == 0) ? 'A' : 'B');
+        qso_panel_draw_m17(&m17, buffer, power_text(v));
         return;
     }
     draw_status_bar(v);

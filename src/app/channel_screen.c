@@ -793,6 +793,7 @@ static void draw(void)
     dmr_call_t call;
     p25_call_t p25;
     nxdn_call_t nxdn;
+    m17_call_t m17;
 
     if ((channel.mode == CODEPLUG_MODE_DMR) && dmr_call(&call)) {
         format_names(zone_text, sizeof(zone_text), name, sizeof(name));
@@ -807,6 +808,11 @@ static void draw(void)
     if ((channel.mode == CODEPLUG_MODE_NXDN) && nxdn_radio_call(&nxdn) && (nxdn.src != 0)) {
         format_names(zone_text, sizeof(zone_text), name, sizeof(name));
         qso_panel_draw_nxdn(&nxdn, name, power_text());
+        return;
+    }
+    if ((channel.mode == CODEPLUG_MODE_M17) && m17_radio_call(&m17) && m17.src[0]) {
+        format_names(zone_text, sizeof(zone_text), name, sizeof(name));
+        qso_panel_draw_m17(&m17, name, power_text());
         return;
     }
     meter.active = true;

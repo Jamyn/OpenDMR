@@ -91,4 +91,12 @@ bool fsk4_fit(const int32_t *v, const int8_t *p, int n, int32_t g_min, int32_t e
 // A value as a soft symbol: (v - dc) / gain x one (gain Q8 a level), clipped to +-127
 int fsk4_soft(int32_t v, int32_t g, int32_t dc, int one);
 
+// A block's symbols in levels Q8 (+3: 768): the four levels' means from the decisions (thresholds 0, +-512), the
+// thresholds put at their midpoints, mapped back to 0 and +-512, piecewise linear (the FM's non-linearity, DC)
+void fsk4_relevel(int32_t *z, int n);
+// The same block through the 3-tap equaliser (-0.05, 0.95, -0.05: least squares on DMR's recordings, and on M17's
+// -0.03, 0.95, -0.025 nearly as good: the intersymbol interference at 5/3 samples a symbol); its first and last
+// symbols as they are
+void fsk4_eq3(int32_t *z, int n);
+
 #endif

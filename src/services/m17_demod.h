@@ -43,7 +43,13 @@
 typedef void (*m17_demod_cb)(void *ctx, int z); // z: a soft symbol (-127 .. 127) or M17_DEMOD_LOST
 
 // Times in samples Q12, from the start (a symbol is 5/3 samples)
+// the receive chain's choices (m17_demod.c; over the cable, A / B): decision directed levels per frame, the 3-tap
+// equaliser (both on). No receive filter: RRC 0.2 or 0.5 doubled the bit errors (our transmitter's shaping is the P25
+// physical layer's, the recording band-limited already)
+extern volatile uint32_t m17_demod_dd, m17_demod_eq;
+
 typedef struct {
+    int32_t fv[192];             // the frame's symbols as read, until all are in
     int32_t buf[M17_DEMOD_RING]; // the samples (fsk4.h)
     fsk4_ring x;
     int32_t dc_slow;           // the input's long-term mean, Q8 (hunting: the signs of a sync)

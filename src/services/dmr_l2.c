@@ -429,3 +429,154 @@ void dmr_lc_parse(const uint8_t lc[9], dmr_lc_t *out)
     out->dst = ((uint32_t)lc[3] << 16) | ((uint32_t)lc[4] << 8) | lc[5];
     out->src = ((uint32_t)lc[6] << 16) | ((uint32_t)lc[7] << 8) | lc[8];
 }
+
+/* ---- transmit ---- */
+
+static void put_bits(uint8_t *b, int from, uint32_t v, int n)
+{
+    for (int i = 0; i < n; i++) {
+        set_bit(b, from + i, (int)((v >> (n - 1 - i)) & 1));
+    }
+}
+
+static void set_middle(uint8_t b[DMR_BURST_BYTES], uint64_t w)
+{
+    for (int i = 0; i < 48; i++) {
+        set_bit(b, 108 + i, (int)((w >> (47 - i)) & 1));
+    }
+}
+
+void dmr_lc_make(uint8_t lc[9], uint8_t flco, uint8_t options, uint32_t dst, uint32_t src)
+{
+    lc[0] = flco & 0x3F;
+    lc[1] = 0;
+    lc[2] = options;
+    lc[3] = (uint8_t)(dst >> 16);
+    lc[4] = (uint8_t)(dst >> 8);
+    lc[5] = (uint8_t)dst;
+    lc[6] = (uint8_t)(src >> 16);
+    lc[7] = (uint8_t)(src >> 8);
+    lc[8] = (uint8_t)src;
+}
+
+void dmr_full_lc_make(const uint8_t lc[9], uint32_t mask, uint8_t out[12])
+{
+    // the remainder of m(x) x^3 by g(x) = x^3 + 0x0E x^2 + 0x38 x + 0x40 (B.10)
+    gf_init();
+    uint8_t r[3] = {0, 0, 0};
+    for (int i = 0; i < 9; i++) {
+        uint8_t fb = lc[i] ^ r[0];
+        r[0] = r[1] ^ gf_mul(fb, 0x0E);
+        r[1] = r[2] ^ gf_mul(fb, 0x38);
+        r[2] = gf_mul(fb, 0x40);
+    }
+    memcpy(out, lc, 9);
+    out[9] = r[0] ^ (uint8_t)(mask >> 16);
+    out[10] = r[1] ^ (uint8_t)(mask >> 8);
+    out[11] = r[2] ^ (uint8_t)mask;
+}
+
+void dmr_burst_data(uint8_t b[DMR_BURST_BYTES], const uint8_t info[12], uint8_t cc, uint8_t data_type, int sync)
+{
+    uint8_t m[196]; // the encoded matrix: index 0 R(3), then 13 rows of 15
+    memset(m, 0, sizeof(m));
+    int k = 0;
+    for (int r = 0; r < 9; r++) {
+        for (int c = (r == 0) ? 3 : 0; c < 11; c++) {
+            m[1 + 15 * r + c] = (uint8_t)bit(info, k++);
+        }
+        uint32_t d = 0;
+        for (int c = 0; c < 11; c++) {
+            d = (d << 1) | m[1 + 15 * r + c];
+        }
+        uint32_t p = parity_of(d, 11, hamming15113, 0);
+        for (int i = 0; i < 4; i++) {
+            m[1 + 15 * r + 11 + i] = (uint8_t)((p >> (3 - i)) & 1);
+        }
+    }
+    for (int c = 0; c < 15; c++) {
+        uint32_t d = 0;
+        for (int r = 0; r < 9; r++) {
+            d = (d << 1) | m[1 + 15 * r + c];
+        }
+        uint32_t p = parity_of(d, 9, hamming1393, 0);
+        for (int i = 0; i < 4; i++) {
+            m[1 + 15 * (9 + i) + c] = (uint8_t)((p >> (3 - i)) & 1);
+        }
+    }
+    memset(b, 0, DMR_BURST_BYTES);
+    for (int i = 0; i < 196; i++) {
+        int t = (i * 181) % 196; // where encoded bit i goes
+        set_bit(b, (t < 98) ? t : (t + 68), m[i]);
+    }
+    uint32_t st = ((uint32_t)(cc & 0x0F) << 4) | (data_type & 0x0F);
+    uint32_t w = (st << 12) | parity_of(st, 8, golay2087, 1);
+    put_bits(b, 98, w >> 10, 10);
+    put_bits(b, 156, w & 0x3FF, 10);
+    set_middle(b, dmr_sync_word[sync]);
+}
+
+static void voice_payload(uint8_t b[DMR_BURST_BYTES], const uint8_t ambe[3][DMR_AMBE_BYTES])
+{
+    memset(b, 0, DMR_BURST_BYTES);
+    for (int i = 0; i < 216; i++) {
+        set_bit(b, (i < 108) ? i : (i + 48), bit(ambe[i / 72], i % 72));
+    }
+}
+
+void dmr_burst_voice_sync(uint8_t b[DMR_BURST_BYTES], const uint8_t ambe[3][DMR_AMBE_BYTES], int sync)
+{
+    voice_payload(b, ambe);
+    set_middle(b, dmr_sync_word[sync]);
+}
+
+void dmr_burst_voice_emb(uint8_t b[DMR_BURST_BYTES], const uint8_t ambe[3][DMR_AMBE_BYTES], uint8_t cc, uint8_t pi,
+                         uint8_t lcss, const uint8_t frag[4])
+{
+    voice_payload(b, ambe);
+    uint32_t e = ((uint32_t)(cc & 0x0F) << 3) | ((uint32_t)(pi & 1) << 2) | (lcss & 3);
+    uint32_t w = (e << 9) | parity_of(e, 7, qr1676, 1);
+    put_bits(b, 108, w >> 8, 8);
+    for (int i = 0; i < 32; i++) {
+        set_bit(b, 116 + i, bit(frag, i));
+    }
+    put_bits(b, 148, w & 0xFF, 8);
+}
+
+void dmr_emb_lc_make(const uint8_t lc[9], uint8_t frags[4][4])
+{
+    uint8_t m[8][16];
+    memset(m, 0, sizeof(m));
+    int sum = 0;
+    for (int i = 0; i < 9; i++) {
+        sum += lc[i];
+    }
+    int cs = sum % 31, k = 0;
+    for (int r = 0; r < 7; r++) {
+        for (int c = 0; c < ((r < 2) ? 11 : 10); c++) {
+            m[r][c] = (uint8_t)bit(lc, k++);
+        }
+        if (r >= 2) {
+            m[r][10] = (uint8_t)((cs >> (6 - r)) & 1); // CS(4) in row 2 .. CS(0) in row 6
+        }
+        uint32_t d = 0;
+        for (int c = 0; c < 11; c++) {
+            d = (d << 1) | m[r][c];
+        }
+        uint32_t p = parity_of(d, 11, hamming16114, 0);
+        for (int i = 0; i < 5; i++) {
+            m[r][11 + i] = (uint8_t)((p >> (4 - i)) & 1);
+        }
+    }
+    for (int c = 0; c < 16; c++) {
+        int p = 0;
+        for (int r = 0; r < 7; r++) {
+            p ^= m[r][c];
+        }
+        m[7][c] = (uint8_t)p;
+    }
+    memset(frags, 0, 16);
+    for (int t = 0; t < 128; t++) { // transmitted bit t: row t % 8, column t / 8
+        set_bit(frags[t / 32], t % 32, m[t % 8][t / 8]);
+    }
+}

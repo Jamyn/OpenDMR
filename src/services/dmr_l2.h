@@ -107,4 +107,21 @@ typedef struct {
 } dmr_lc_t;
 void dmr_lc_parse(const uint8_t lc[9], dmr_lc_t *out);
 
+
+/* ---- transmit: a burst's fields encoded (the same layout) ---- */
+
+// a Full LC's 9 bytes: FLCO (group voice 0, unit to unit 3), FID 0, service options, destination, source
+void dmr_lc_make(uint8_t lc[9], uint8_t flco, uint8_t options, uint32_t dst, uint32_t src);
+// the Full LC of a voice LC header or a terminator: its RS (12,9) parity, the data type's CRC mask applied
+void dmr_full_lc_make(const uint8_t lc[9], uint32_t mask, uint8_t out[12]);
+// a data burst: the 12 information bytes through the BPTC (196,96), the Slot Type, the middle the SYNC of kind
+void dmr_burst_data(uint8_t b[DMR_BURST_BYTES], const uint8_t info[12], uint8_t cc, uint8_t data_type, int sync);
+// a voice burst: its 3 AMBE+2 frames, the middle the voice SYNC of kind (A) ...
+void dmr_burst_voice_sync(uint8_t b[DMR_BURST_BYTES], const uint8_t ambe[3][DMR_AMBE_BYTES], int sync);
+// ... or the EMB and 32 embedded signalling bits (B - F)
+void dmr_burst_voice_emb(uint8_t b[DMR_BURST_BYTES], const uint8_t ambe[3][DMR_AMBE_BYTES], uint8_t cc, uint8_t pi,
+                         uint8_t lcss, const uint8_t frag[4]);
+// an LC for the embedded signalling: the 4 fragments of bursts B - E (B.2.1, with its 5-bit checksum)
+void dmr_emb_lc_make(const uint8_t lc[9], uint8_t frags[4][4]);
+
 #endif

@@ -47,8 +47,10 @@
 #include "afrx.h"
 
 #define POLL_MS     4    // a half is 32 ms
-#define STACK_WORDS 1792 // 7 KB: frame decoding and our AMBE decoder (NXDN, DMR); the AMBE encoder ~6.5 KB (NXDN
-                         // transmit); Codec 2 decoding ~3.5 KB, encoding ~2 KB (M17)
+#define STACK_WORDS 2304 // 9 KB: frame decoding and our AMBE decoder (NXDN, DMR); the AMBE encoder ~6.5 KB (NXDN, DMR
+                         // transmit); Codec 2 decoding ~3.5 KB, encoding ~2 KB (M17). 7 KB overflowed with DMR's
+                         // transmit (2026-11-20: the flags below the stack overwritten, the receiver stopped);
+                         // afrx_debug[4]: the least of it left unused, measured
 
 static StaticTask_t task_tcb;
 static StackType_t task_stack[STACK_WORDS];
@@ -58,6 +60,28 @@ static volatile bool running;
 static volatile bool busy; // the task is using the receiver (its overlay)
 static volatile bool tx_want, tx_busy;
 static int16_t half[256]; // off the stack
+// over the cable: [0] running | busy << 1 | tx_want << 2 | tx_busy << 3 | a receiver set << 4; [1] the recording not
+// started again after a transmission; [2] transmissions; [3] stops; [4] the stack never used (bytes, the least seen)
+volatile uint32_t afrx_debug[5] = {0, 0, 0, 0, UINT32_MAX};
+
+// the stack's bytes still as FreeRTOS filled them (0xA5) from its bottom
+static void stack_check(void)
+{
+    const uint8_t *p = (const uint8_t *)task_stack;
+    uint32_t n = 0;
+    while ((n < sizeof(task_stack)) && (p[n] == 0xA5)) {
+        n++;
+    }
+    if (n < afrx_debug[4]) {
+        afrx_debug[4] = n;
+    }
+}
+
+static void debug_state(void)
+{
+    afrx_debug[0] = (uint32_t)running | ((uint32_t)busy << 1) | ((uint32_t)tx_want << 2) | ((uint32_t)tx_busy << 3) |
+                    ((uint32_t)(current != NULL) << 4);
+}
 
 static void receive_again(const afrx_ops_t *o)
 {
@@ -75,8 +99,13 @@ static void transmit(const afrx_ops_t *o)
     }
     voice_play_stop();
     afrec_stop();
+    afrx_debug[2]++;
+    debug_state();
     o->transmit();
-    afrec_start(o->bw);
+    stack_check();
+    if (!afrec_start(o->bw)) {
+        afrx_debug[1]++;
+    }
     receive_again(o);
     tx_busy = false;
 }
@@ -88,6 +117,7 @@ static void task_main(void *arg)
     (void)arg;
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(POLL_MS));
+        debug_state();
         busy = true;
         const afrx_ops_t *o = current;
         if (!running || !o) {
@@ -122,6 +152,7 @@ static void task_main(void *arg)
         if (running && o->poll) {
             o->poll();
         }
+        stack_check();
         busy = false;
     }
 }
@@ -154,6 +185,7 @@ void afrx_stop(void)
         return;
     }
     running = false;
+    afrx_debug[3]++;
     while (busy) { // the task done with the overlay
         vTaskDelay(1);
     }

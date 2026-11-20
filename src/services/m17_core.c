@@ -50,6 +50,8 @@
 #define BITS        368
 #define MAX_MISSES  3   // frames without a sync before the lock is given up
 #define SYNC_ERRORS 3   // bits of a sync wrong at most where one is expected
+#define EOT_ERRORS  2   // ... of the EoT
+#define EOS_METRIC  8   // a stream frame's end bit taken without a frame number to compare at most this many errors
 #define HUNT_METRIC 24  // a stream frame found hunting: coded bits wrong at most (of 272)
 
 static const char alphabet[] = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-/."; // the callsigns' base 40
@@ -262,6 +264,7 @@ static void lich(m17_rx *r)
 void m17_rx_init(m17_rx *r)
 {
     memset(r, 0, sizeof(*r));
+    r->next_fn = -1;
 }
 
 void m17_rx_reset(m17_rx *r)
@@ -271,6 +274,7 @@ void m17_rx_reset(m17_rx *r)
     r->since = 0;
     r->misses = 0;
     r->lich_got = 0;
+    r->next_fn = -1;
 }
 
 // a whole frame: decoded
@@ -300,7 +304,11 @@ static m17_rx_event_t frame(m17_rx *r)
     r->locked = true;
     r->streams++;
     r->fn = (uint16_t)(((data[0] & 0x7F) << 8) | data[1]);
-    r->eos = (data[0] & 0x80) != 0;
+    // the end bit believed when the frame number is the one expected (the frame decoded right), or, without one to
+    // compare (a late entry's first frame), when the frame came nearly without errors
+    bool follows = (r->next_fn >= 0) && (r->fn == (uint16_t)r->next_fn);
+    r->eos = ((data[0] & 0x80) != 0) && (follows || ((r->next_fn < 0) && (r->metric <= EOS_METRIC)));
+    r->next_fn = (follows || (r->next_fn < 0)) ? ((r->fn + 1) & 0x7FFF) : ((r->next_fn + 1) & 0x7FFF);
     memcpy(r->stream, data + 2, M17_STREAM_BYTES);
     uint8_t had = r->lich_got;
     lich(r);
@@ -336,12 +344,16 @@ m17_rx_event_t m17_rx_symbol(m17_rx *r, int8_t z)
                 uint16_t s = (uint16_t)r->sync;
                 unsigned valid = (r->sync_valid < 8) ? r->sync_valid : 8; // the last dibits not erased
                 uint16_t mask = (uint16_t)((valid >= 8) ? 0xFFFF : ((1U << (2 * valid)) - 1));
-                if ((valid >= 4) && (weight((s ^ EOT_SYNC) & mask) <= SYNC_ERRORS)) {
+                // the EoT only when nearer it than the stream sync, and by 2 bits at most: the two differ in 4 bits
+                // (the first 4 symbols' signs), a stream sync with one sign wrong was taken for the EoT and the call
+                // ended in the middle (2026-11-20). A missed EoT only ends the call CALL_TIMEOUT later
+                unsigned d_eot = weight((s ^ EOT_SYNC) & mask), d_stream = weight((s ^ STREAM_SYNC) & mask);
+                if ((valid >= 6) && (d_eot <= EOT_ERRORS) && (d_eot < d_stream)) {
                     r->eots++;
                     m17_rx_reset(r);
                     return M17_RX_EOT;
                 }
-                if (weight((s ^ STREAM_SYNC) & mask) > SYNC_ERRORS) {
+                if (d_stream > SYNC_ERRORS) {
                     if (++r->misses > MAX_MISSES) {
                         r->syncs_lost++;
                         m17_rx_reset(r);

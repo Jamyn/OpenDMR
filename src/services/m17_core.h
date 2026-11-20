@@ -64,7 +64,9 @@ typedef struct {
     uint8_t lsf[M17_LSF_BYTES];
     bool lsf_valid;
     uint16_t fn;        // the frame number (15 bits)
-    bool eos;           // the last stream frame
+    bool eos;           // the last stream frame (its frame number following the one before: a frame decoded wrong
+                        // with that bit set ended calls in the middle)
+    int32_t next_fn;    // the frame number expected next (-1: none yet)
     uint8_t stream[M17_STREAM_BYTES];
     uint16_t metric;    // coded bits of the last frame that differ from the decoded data re-encoded (hard decisions)
     uint16_t soft_metric; // the Viterbi's path cost (the soft values it went against, / M17_SOFT_ONE)

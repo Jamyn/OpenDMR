@@ -237,23 +237,18 @@ int nxdn_af_capture(int halves, uint32_t fm_bandwidth, int work_mode)
     return n;
 }
 
-/* The NXDN receiver (nxdn_radio.c): the modem in FM, recording all the time, the DMR handlers standing aside as for
-   the physical layer receive. FM_BANDWIDTH 0x1F: the band-pass off (it cut the 4FSK under 300 Hz), the de-emphasis
-   on (undone in software); FM_DEV_COEF as for 12.5 kHz FM. */
+/* The software receivers (afrx.c: NXDN, M17, DMR): the modem in FM, recording all the time, the DMR handlers standing
+   aside as for the physical layer receive. FM_BANDWIDTH (afrec_start()): 0x1F (NXDN) the band-pass off (it cut the
+   4FSK under 300 Hz), the de-emphasis on (undone in software); 0x0F neither; FM_DEV_COEF as for 12.5 kHz FM. */
 #define NXDN_FM_WORK_MODE 0x80
 #define NXDN_FM_BW_VALUE  0x1F
 #define NXDN_FM_DEV       (*(volatile uint32_t *)(MODEM_REG_BASE + 0x0504))
 static uint32_t nxdn_saved_wm, nxdn_saved_bw, nxdn_saved_dev, nxdn_saved_phy_wm;
 static uint32_t nxdn_last_sw;
-static uint32_t nxdn_bw = NXDN_FM_BW_VALUE; // the recording's FM_BANDWIDTH (nxdn_fm_start_bw())
-volatile uint32_t nxdn_fm_rewrites; // WORK_MODE / FM_BANDWIDTH found changed and put back
+static uint32_t nxdn_bw = NXDN_FM_BW_VALUE; // the recording's FM_BANDWIDTH (afrec_start())
+volatile uint32_t afrec_rewrites; // WORK_MODE / FM_BANDWIDTH found changed and put back
 
-bool nxdn_fm_start(void)
-{
-    return nxdn_fm_start_bw(NXDN_FM_BW_VALUE);
-}
-
-bool nxdn_fm_start_bw(uint32_t bw)
+bool afrec_start(uint32_t bw)
 {
     if (active || tx_active) {
         return false;
@@ -272,7 +267,7 @@ bool nxdn_fm_start_bw(uint32_t bw)
     return true;
 }
 
-void nxdn_fm_stop(void)
+void afrec_stop(void)
 {
     if (!active || stream_cb) {
         return;
@@ -287,12 +282,12 @@ void nxdn_fm_stop(void)
 // The half of the recording the modem finished since the last call (256 samples, 16 bit big endian in its RAM) into
 // out; false: none yet. *skipped: halves that went by unread (more than one change of FM_ADDR_SW cannot be seen: a
 // late reader loses whole halves, told by the caller's clock)
-bool nxdn_fm_read(int16_t out[256])
+bool afrec_read(int16_t out[256])
 {
     if ((*WORK_MODE != NXDN_FM_WORK_MODE) || (NXDN_FM_BW != nxdn_bw)) { // something set them back
         *WORK_MODE = NXDN_FM_WORK_MODE;
         NXDN_FM_BW = nxdn_bw;
-        nxdn_fm_rewrites++;
+        afrec_rewrites++;
     }
     uint32_t sw = NXDN_FM_ADDR_SW & 3;
     if (sw == nxdn_last_sw) {

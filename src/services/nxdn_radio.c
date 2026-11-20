@@ -62,17 +62,17 @@
 #include "flash.h"
 #include "dmr_compat.h"
 #include "voice_play.h"
+#include "afrx.h"
 
 #define PCM_FRAMES     16   // 320 ms of decoded voice
 #define PLAY_START     6    // frames queued before the playback starts: they come 4 at a time every 80 ms, a frame
                             // decoded once its last half (32 ms) is read
 #define CALL_TIMEOUT   320  // ms without a voice frame: the call ended (a frame is 80 ms)
-#define POLL_MS        4    // the recording looked at this often (a half is 32 ms)
 #define TAP_SAMPLES    2048 // the last samples as recorded, for tools over the cable (256 ms)
 #define VCH_LOG        256  // the last voice frames received, for tools over the cable (5 s)
 #define TX_LEAD_MAX    240  // symbols of lead at most (100 ms)
 
-#define OVERLAY_BSS __attribute__((section(".vocoder_bss"))) // zeroed by the vocoder's load, ours after its own
+#define OVERLAY_BSS __attribute__((section(".nxdn_bss"))) // after the vocoder's RAM (ckcpu.ld), not zeroed
 
 volatile nxdn_radio_stats_t nxdn_radio_stats;
 
@@ -104,15 +104,7 @@ static TickType_t play_next;
 uint8_t nxdn_vch_log[VCH_LOG][9] OVERLAY_BSS; // the voice frames as received (ring, nxdn_vch_log_n so far), for
 volatile uint32_t nxdn_vch_log_n;              // nxdn/py/vch_check.py against the frames sent
 
-static StaticTask_t task_tcb;
-static StackType_t task_stack[1792]; // 7 KB: the frame decoding, our AMBE decoder; the encoder (transmit) ~6.5 KB
-static TaskHandle_t task;
-static volatile bool running;
-static volatile bool busy; // the task is using the overlay
-
 /* transmit: the PTT (nxdn_radio_transmit()), where to (nxdn_radio_set_target()), settings and counters over the cable */
-static volatile bool tx_want, tx_busy;
-static volatile bool tx_on; // transmitting: the playback off
 static volatile uint16_t tx_src, tx_dst = 1;
 static volatile uint8_t tx_ran = 1;
 static volatile bool tx_individual;
@@ -332,24 +324,15 @@ static void put(const uint8_t *syms, int n)
     }
 }
 
-/* A transmission while tx_want (the PTT) stays set: the playback and the recording off, the lead, the preamble and
+/* A transmission while the PTT stays held (afrx.c: the call ended, the playback and the recording off): the lead, the preamble and
    the first frame into the FIFO and the transmitter keyed (the first voice frame comes 4 mic frames and their
    encoding later, ~95 ms: the lead and the first frame cover that, the interrupt taking a block 30 ms ahead); then a
    frame for every 4 mic frames. The PTT released: the frame finished with silence, the last frame (TX_REL); once
    sent, back to receive. */
 static void transmit(void)
 {
-    tx_busy = true;
-    if (call.active) {
-        call_end();
-    }
-    tx_on = true;
-    voice_play_stop();
-    nxdn_fm_stop();
     vocoderReset();
-    sound_mic_start();
-    p25_phy_tx_reset();
-    modem_set_mod_scale(nxdn_tx_dev);
+    afrx_fifo_prepare(nxdn_tx_dev);
     nxdn_tx_stats[0]++;
 
     uint32_t lead = (nxdn_tx_lead > TX_LEAD_MAX) ? TX_LEAD_MAX : nxdn_tx_lead;
@@ -359,13 +342,13 @@ static void transmit(void)
     int n = (int)lead + nxdn_tx_begin(&tx, tx_src, tx_dst, tx_ran,
                                       tx_individual ? NXDN_CALL_INDIVIDUAL : NXDN_CALL_GROUP, &tx_syms[lead]);
     put(tx_syms, n);
-    bool started = (p25_phy_tx_begin(nxdn_tx_low_power != 0) == 0);
+    bool started = afrx_fifo_key(nxdn_tx_low_power != 0);
     int16_t pcm[160];
     int halves = 0, nf = 0;
     uint32_t play = 0;
     bool ending = false;
     while (started) {
-        if (!tx_want) {
+        if (!afrx_ptt_held()) {
             ending = true;
         }
         if (ending && (nf == 0)) {
@@ -403,26 +386,11 @@ static void transmit(void)
     }
     if (started) {
         put(tx_syms, nxdn_tx_end(&tx, tx_syms));
-        p25_phy_tx_pad(); // the last frame's block whole: sent
-        while ((p25_phy_tx_level() >= P25_PHY_BLOCK_BYTES * 4) && (p25_phy_tx_underrun < 10)) {
-            vTaskDelay(pdMS_TO_TICKS(5));
-        }
-        vTaskDelay(pdMS_TO_TICKS(60)); // the last blocks out of the modem
-        p25_phy_tx_end();
-        nxdn_tx_stats[3] = p25_phy_tx_underrun;
     }
-    modem_set_mod_scale(MODEM_MOD_SCALE_ONE);
-    soundStopMicCapture();
-
-    // back to receive
-    nxdn_fm_start();
-    nxdn_rx_init(&rx, on_frame, NULL);
-    memset(&super, 0, sizeof(super));
-    vocoderReset();
-    voice_play_start(&play_cfg);
-    ignored = false;
-    tx_on = false;
-    tx_busy = false;
+    uint32_t underruns = afrx_fifo_finish(started);
+    if (started) {
+        nxdn_tx_stats[3] = underruns;
+    }
 }
 
 void nxdn_radio_set_target(uint8_t ran, uint16_t src, uint16_t dst, bool individual)
@@ -435,117 +403,101 @@ void nxdn_radio_set_target(uint8_t ran, uint16_t src, uint16_t dst, bool individ
 
 void nxdn_radio_transmit(bool on)
 {
-    tx_want = on;
+    afrx_ptt(on);
 }
 
 bool nxdn_radio_transmitting(void)
 {
-    return tx_want || tx_busy;
+    return afrx_transmitting();
 }
 
-/* ---- the receive task ---- */
+/* ---- receiving (afrx.c runs it) ---- */
 
-static void task_main(void *arg)
+// the receiver from scratch: starting, and after transmitting
+static void rx_init(void)
 {
-    static int16_t half[256] OVERLAY_BSS; // off the stack: the encoder needs it (transmit())
-    TickType_t last_half = 0;
-
-    (void)arg;
-    for (;;) {
-        vTaskDelay(pdMS_TO_TICKS(POLL_MS));
-        busy = true;
-        if (running && tx_want) {
-            transmit();
-            last_half = 0;
-        }
-        if (!running) {
-            last_half = 0;
-            busy = false;
-            continue;
-        }
-        while (running && nxdn_fm_read(half)) {
-            uint32_t t0 = systime_get_us();
-            TickType_t now = xTaskGetTickCount();
-            if (last_half && ((now - last_half) > pdMS_TO_TICKS(48))) { // a half or more went by unread
-                nxdn_radio_stats.missed_halves += (now - last_half) / pdMS_TO_TICKS(32) - 1;
-            }
-            last_half = now;
-            nxdn_radio_stats.halves++;
-            if (nxdn_tap_source == 0) {
-                tap_put(half, 256);
-            }
-            nxdn_rx_samples(&rx, half, 256);
-            nxdn_radio_stats.hunts = rx.hunts;
-            nxdn_radio_stats.lost_sync = rx.lost_sync;
-            uint32_t took = systime_get_us() - t0;
-            nxdn_radio_stats.demod_us_sum += took;
-            if (took > nxdn_radio_stats.busy_max_us) {
-                nxdn_radio_stats.busy_max_us = took;
-            }
-        }
-        if (nxdn_play_frames && ((int32_t)(xTaskGetTickCount() - play_next) >= 0)) { // the flash test
-            if (!call.active) {
-                call_begin();
-                play_next = xTaskGetTickCount();
-            }
-            for (int k = 0; k < 4; k++) {
-                uint8_t ambe[9];
-                if (play_index >= nxdn_play_frames) {
-                    play_index = 0;
-                }
-                flash_read(nxdn_play_address + (9 * play_index++), ambe, 9);
-                voice(ambe);
-            }
-            last_voice = xTaskGetTickCount();
-            play_next += pdMS_TO_TICKS(80);
-        }
-        if (ignored && ((xTaskGetTickCount() - heard_at) >= pdMS_TO_TICKS(CALL_TIMEOUT))) {
-            ignored = false; // the call not for us is over
-        }
-        if (call.active && ((xTaskGetTickCount() - last_voice) >= pdMS_TO_TICKS(CALL_TIMEOUT))) {
-            call_end();
-        }
-        busy = false;
-    }
-}
-
-void nxdn_radio_start(void)
-{
-    if (running) {
-        return;
-    }
-    if (!task) {
-        task = xTaskCreateStatic(task_main, "nxdn", sizeof(task_stack) / sizeof(task_stack[0]), NULL,
-                                 tskIDLE_PRIORITY + 3, task_stack, &task_tcb);
-    }
-    // the modem to FM recording first: the DMR engine stands aside from then on, then our state into the overlay
-    if (!nxdn_fm_start()) {
-        return;
-    }
-    vTaskDelay(pdMS_TO_TICKS(5));
-    overlay_claim(OVERLAY_AMBE);
     nxdn_rx_init(&rx, on_frame, NULL);
     memset(&super, 0, sizeof(super));
     memset(&call, 0, sizeof(call));
+    vocoderReset();
     ignored = false;
-    memset(&published, 0, sizeof(published));
-    voice_play_start(&play_cfg);
-    heard = false;
-    running = true;
+}
+
+static void samples(int16_t *x, int n)
+{
+    uint32_t t0 = systime_get_us();
+    if (nxdn_tap_source == 0) {
+        tap_put(x, n);
+    }
+    nxdn_rx_samples(&rx, x, n);
+    nxdn_radio_stats.hunts = rx.hunts;
+    nxdn_radio_stats.lost_sync = rx.lost_sync;
+    nxdn_radio_stats.demod_us_sum += systime_get_us() - t0;
+}
+
+static void poll(void)
+{
+    if (nxdn_play_frames && ((int32_t)(xTaskGetTickCount() - play_next) >= 0)) { // the flash test
+        if (!call.active) {
+            call_begin();
+            play_next = xTaskGetTickCount();
+        }
+        for (int k = 0; k < 4; k++) {
+            uint8_t ambe[9];
+            if (play_index >= nxdn_play_frames) {
+                play_index = 0;
+            }
+            flash_read(nxdn_play_address + (9 * play_index++), ambe, 9);
+            voice(ambe);
+        }
+        last_voice = xTaskGetTickCount();
+        play_next += pdMS_TO_TICKS(80);
+    }
+    if (ignored && ((xTaskGetTickCount() - heard_at) >= pdMS_TO_TICKS(CALL_TIMEOUT))) {
+        ignored = false; // the call not for us is over
+    }
+    if (call.active && ((xTaskGetTickCount() - last_voice) >= pdMS_TO_TICKS(CALL_TIMEOUT))) {
+        call_end();
+    }
+}
+
+static void end_call(void)
+{
+    if (call.active) {
+        call_end();
+    }
+}
+
+static const afrx_ops_t ops = {
+    .bw = AFREC_BW_NXDN,
+    .overlay = OVERLAY_AMBE,
+    .play = &play_cfg,
+    .rx_init = rx_init,
+    .samples = samples,
+    .poll = poll,
+    .end_call = end_call,
+    .transmit = transmit,
+    .stats = {
+        .halves = &nxdn_radio_stats.halves,
+        .missed = &nxdn_radio_stats.missed_halves,
+        .busy_us_max = &nxdn_radio_stats.busy_max_us,
+    },
+};
+
+void nxdn_radio_start(void)
+{
+    if (afrx_start(&ops)) {
+        heard = false;
+        memset(&published, 0, sizeof(published));
+    }
 }
 
 void nxdn_radio_stop(void)
 {
-    if (!running) {
+    if (!afrx_running(&ops)) {
         return;
     }
-    running = false;
-    while (busy) { // the task done with the overlay
-        vTaskDelay(1);
-    }
-    voice_play_stop(); // the playback too
-    nxdn_fm_stop();
-    overlay_release(OVERLAY_AMBE);
+    afrx_stop();
     call.active = false;
     call_publish();
 }

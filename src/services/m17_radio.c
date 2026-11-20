@@ -30,8 +30,9 @@
  * OpenDMR, service: the M17 receiver (m17_radio.h, m17/README.md).
  *
  * As the NXDN receiver (nxdn_radio.c): the modem records its AF input (the FD6818's discriminator, 8 kHz, here without
- * the de-emphasis) in halves of 256 samples; the task reads each half as the modem finishes it into m17_demod.c (4FSK
- * in software: the syncs found by correlation, the timing, gain and DC from each), whose dibits go into m17_core.c
+ * the de-emphasis) in halves of 256 samples; the software receivers' task (afrx.c) gives each half as the modem
+ * finishes it to m17_demod.c (4FSK in software: the syncs found by correlation, the timing, gain and DC from each),
+ * whose dibits go into m17_core.c
  * (frames, FEC, LSF / LICH). Each stream frame's two Codec 2 3200 frames are decoded (c2dec.c) into the playback's
  * queue of 20 ms frames (voice_play.c: into the prompt FIFO, the beeps' path, which plays while the modem records).
  *
@@ -40,8 +41,8 @@
  * last with its end bit, the EoT), the dibits through the P25 physical layer's transmit FIFO (4800 symbols/s, as M17),
  * the modem's 4FSK level scaled to M17's deviation (m17_tx_dev).
  *
- * The demodulator's and the receiver's state, the decoder, the encoder and the task's stack live in the M17 overlay
- * RAM (ckcpu.ld): the task is created when the receiver starts, after the overlay is loaded, and deleted when it stops.
+ * The demodulator's and the receiver's state, the decoder and the encoder live in the M17 overlay RAM (ckcpu.ld),
+ * claimed while the receiver runs (afrx.c).
  */
 
 #include <string.h>
@@ -65,12 +66,11 @@
 #include "m17_radio.h"
 #include "ui.h"
 #include "voice_play.h"
+#include "afrx.h"
 
-#define FM_BW         0x0F // the recording's FM_BANDWIDTH: no band-pass, no de-emphasis (NXDN: 0x1F)
 #define PCM_FRAMES    16   // 320 ms of decoded voice
 #define PLAY_START    4    // frames queued before the playback starts (they come two at a time every 40 ms)
 #define CALL_TIMEOUT  400  // ms without a stream frame: the call ended
-#define POLL_MS       4    // the recording looked at this often (a half is 32 ms)
 #ifdef M17_HARD_VITERBI    // the hard decision build (comparisons): as before
 #define VOICE_METRIC  24
 #else
@@ -82,7 +82,6 @@
 #define SWEEP_LO      161061273U  // 300 Hz: 2^32 300 / 8000 a sample
 #define SWEEP_HI      1610612736U // 3 kHz
 #define SWEEP_STEP    90597U      // (HI - LO) / 16000 a sample
-#define STACK_WORDS   1536 // 6 KB: c2dec ~3.5 KB, the Viterbi 0.5 KB; c2enc ~2 KB
 
 #define OVERLAY_BSS __attribute__((section(".m17_bss"))) // in the M17 overlay, zeroed by its load
 
@@ -102,9 +101,7 @@ static union {
     } rx;
     c2enc_t enc; // transmitting: the decoder and the playback queue unused (both set up again after)
 } mem OVERLAY_BSS;
-static int16_t half[256] OVERLAY_BSS;
 static uint8_t tx_dibits[M17_FRAME_DIBITS] OVERLAY_BSS;
-static StackType_t task_stack[STACK_WORDS] OVERLAY_BSS;
 // for tools over the cable (m17/py/m17_monitor.py): the dibits given to m17_core.c (5: the demodulator lost the
 // signal), the last ones; the recording, the last M17_RAW_TAP samples, held RAW_HOLD samples after a call began (the
 // call's start in it)
@@ -125,14 +122,7 @@ volatile uint32_t m17_raw_rearm; // over the cable: not 0, the recording tap tak
 volatile uint32_t m17_raw_source; // over the cable: 1, the recording tap takes the first samples played in a call
 
 
-static StaticTask_t task_tcb;
-static TaskHandle_t task;
-static volatile bool running;
-static volatile bool busy; // the task is using the overlay
-
 /* transmit: the PTT (m17_radio_transmit()) */
-static volatile bool tx_want, tx_busy;
-static volatile bool tx_on; // transmitting: the receiver and the playback off
 static volatile uint8_t tx_can;
 static uint8_t tx_lsf[M17_LSF_BYTES];
 
@@ -301,13 +291,13 @@ static const voice_play_cfg_t play_cfg = {
 
 /* ---- transmit ---- */
 
-// the receiver, the demodulator and the decoder from the start (the recording on)
+// the receiver, the demodulator and the decoder from the start (the recording on; afrx.c starts the playback)
 static void receive_init(void)
 {
     m17_demod_init(&dm, on_dibit, NULL);
     m17_rx_init(&rx);
     c2dec_init(&mem.rx.dec);
-    voice_play_start(&play_cfg);
+    memset(&call, 0, sizeof(call));
 }
 
 /* The mic: its ADC has a large DC (~2400, after ~12000 at the start), which Codec 2 (made for AC coupled input) would
@@ -337,22 +327,14 @@ static void mic_filter(int16_t *x, mic_hp_t *hp)
     }
 }
 
-/* A transmission while tx_want (the PTT) stays set: the playback and the recording off, the preamble and the LSF into
+/* A transmission while the PTT stays held (afrx.c: the playback and the recording off): the preamble and the LSF into
    the FIFO and the transmitter keyed (80 ms: the first stream frame comes 40 ms of mic and two encodings later); then a
    stream frame for every two mic frames (40 ms). The PTT released: the frame finished with silence and sent as the
    last, the EoT; once sent, back to receive. */
 static void transmit(void)
 {
-    tx_busy = true;
-    if (call.active) {
-        call_end();
-    }
-    tx_on = true;
-    voice_play_stop(); // the playback off: the encoder takes its queue's RAM (mem)
-    nxdn_fm_stop();
-    sound_mic_start();
-    p25_phy_tx_reset();
-    modem_set_mod_scale(m17_tx_dev);
+    // the playback is off (afrx.c): the encoder takes its queue's RAM (mem)
+    afrx_fifo_prepare(m17_tx_dev);
     c2enc_init(&mem.enc);
     m17_tx_stats[0]++;
     m17_tx_stats[1] = 0;
@@ -365,7 +347,7 @@ static void transmit(void)
     p25_phy_tx_put(tx_dibits, M17_FRAME_DIBITS);
     m17_tx_lsf(tx_lsf, tx_dibits);
     p25_phy_tx_put(tx_dibits, M17_FRAME_DIBITS);
-    bool started = (p25_phy_tx_begin(m17_tx_low_power != 0) == 0);
+    bool started = afrx_fifo_key(m17_tx_low_power != 0);
     int16_t pcm_tx[C2DEC_SAMPLES];
     uint8_t data[M17_STREAM_BYTES];
     uint32_t tone = 0, step = SWEEP_LO; // the test sweep's phase and its step a sample (2^32: 2 pi)
@@ -376,7 +358,7 @@ static void transmit(void)
     uint16_t fn = 0;
     bool ending = false;
     while (started) {
-        if (!tx_want) {
+        if (!afrx_ptt_held()) {
             ending = true;
         }
         if (ending) { // silence to the end of the stream frame
@@ -422,24 +404,12 @@ static void transmit(void)
     if (started) {
         m17_tx_eot(tx_dibits);
         p25_phy_tx_put(tx_dibits, M17_FRAME_DIBITS);
-        p25_phy_tx_pad(); // the last block whole: sent
-        while ((p25_phy_tx_level() >= P25_PHY_BLOCK_BYTES * 4) && (p25_phy_tx_underrun < 10)) {
-            vTaskDelay(pdMS_TO_TICKS(5));
-        }
-        vTaskDelay(pdMS_TO_TICKS(60)); // the last blocks out of the modem
-        p25_phy_tx_end();
-        m17_tx_stats[3] = p25_phy_tx_underrun;
     }
-    modem_set_mod_scale(MODEM_MOD_SCALE_ONE);
-    soundStopMicCapture();
-
+    uint32_t underruns = afrx_fifo_finish(started);
+    if (started) {
+        m17_tx_stats[3] = underruns;
+    }
     m17_raw_hold = 1; // the mic's samples kept for the cable until m17_raw_rearm
-
-    // back to receive
-    nxdn_fm_start_bw(FM_BW);
-    receive_init();
-    tx_on = false;
-    tx_busy = false;
 }
 
 void m17_radio_set_can(uint8_t can)
@@ -449,90 +419,76 @@ void m17_radio_set_can(uint8_t can)
 
 void m17_radio_transmit(bool on)
 {
-    tx_want = on;
+    afrx_ptt(on);
 }
 
 bool m17_radio_transmitting(void)
 {
-    return tx_want || tx_busy;
+    return afrx_transmitting();
 }
 
-/* ---- the receive task ---- */
+/* ---- receiving (afrx.c runs it) ---- */
 
-static void task_main(void *arg)
+static void samples(int16_t *x, int n)
 {
-    (void)arg;
-    for (;;) {
-        vTaskDelay(pdMS_TO_TICKS(POLL_MS));
-        busy = true;
-        if (running && tx_want) {
-            transmit();
+    if (m17_raw_rearm) {
+        m17_raw_rearm = 0;
+        m17_raw_hold = 0;
+    }
+    for (int k = 0; (k < n) && (m17_raw_hold != 1); k++) {
+        m17_raw_tap[m17_raw_tap_n % M17_RAW_TAP] = x[k];
+        m17_raw_tap_n++;
+        if (m17_raw_hold > 1) {
+            m17_raw_hold--;
         }
-        if (!running) {
-            busy = false;
-            continue;
-        }
-        while (running && nxdn_fm_read(half)) {
-            uint32_t t0 = systime_get_us();
-            m17_radio_stats.halves++;
-            if (m17_raw_rearm) {
-                m17_raw_rearm = 0;
-                m17_raw_hold = 0;
-            }
-            for (int k = 0; (k < 256) && (m17_raw_hold != 1); k++) {
-                m17_raw_tap[m17_raw_tap_n % M17_RAW_TAP] = half[k];
-                m17_raw_tap_n++;
-                if (m17_raw_hold > 1) {
-                    m17_raw_hold--;
-                }
-            }
-            m17_demod_samples(&dm, half, 256);
-            m17_radio_stats.syncs = dm.syncs;
-            m17_radio_stats.lost = dm.lost;
-            uint32_t took = systime_get_us() - t0;
-            if (took > m17_radio_stats.busy_us_max) {
-                m17_radio_stats.busy_us_max = took;
-            }
-        }
-        if (call.active && ((xTaskGetTickCount() - last_frame) >= pdMS_TO_TICKS(CALL_TIMEOUT))) {
-            call_end();
-        }
-        busy = false;
+    }
+    m17_demod_samples(&dm, x, n);
+    m17_radio_stats.syncs = dm.syncs;
+    m17_radio_stats.lost = dm.lost;
+}
+
+static void poll(void)
+{
+    if (call.active && ((xTaskGetTickCount() - last_frame) >= pdMS_TO_TICKS(CALL_TIMEOUT))) {
+        call_end();
     }
 }
+
+static void end_call(void)
+{
+    if (call.active) {
+        call_end();
+    }
+}
+
+static const afrx_ops_t ops = {
+    .bw = AFREC_BW_FLAT, // no band-pass, no de-emphasis
+    .overlay = OVERLAY_M17,
+    .play = &play_cfg,
+    .rx_init = receive_init,
+    .samples = samples,
+    .poll = poll,
+    .end_call = end_call,
+    .transmit = transmit,
+    .stats = {
+        .halves = &m17_radio_stats.halves,
+        .busy_us_max = &m17_radio_stats.busy_us_max,
+    },
+};
 
 void m17_radio_start(void)
 {
-    if (running) {
-        return;
+    if (afrx_start(&ops)) {
+        heard = false;
     }
-    if (!nxdn_fm_start_bw(FM_BW)) {
-        return;
-    }
-    vTaskDelay(pdMS_TO_TICKS(5));
-    overlay_claim(OVERLAY_M17);
-    receive_init();
-    memset(&call, 0, sizeof(call));
-    heard = false;
-    running = true;
-    task = xTaskCreateStatic(task_main, "m17", STACK_WORDS, NULL, tskIDLE_PRIORITY + 3, task_stack, &task_tcb);
 }
 
 void m17_radio_stop(void)
 {
-    if (!running) {
+    if (!afrx_running(&ops)) {
         return;
     }
-    running = false;
-    while (busy) { // the task done with the overlay
-        vTaskDelay(1);
-    }
-    voice_play_stop(); // the playback too
-    TaskHandle_t t = task;
-    task = NULL;
-    vTaskDelete(t);
-    nxdn_fm_stop();
-    overlay_release(OVERLAY_M17);
+    afrx_stop();
     call.active = false;
     call_publish();
 }

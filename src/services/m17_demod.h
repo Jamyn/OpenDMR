@@ -35,6 +35,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "fsk4.h"
+
 #define M17_DEMOD_RING 2048 // samples kept (256 ms; a frame is 320)
 #define M17_DEMOD_LOST 1000 // given instead of a symbol: the signal lost, the frame receiver to start over
 
@@ -42,17 +44,17 @@ typedef void (*m17_demod_cb)(void *ctx, int z); // z: a soft symbol (-127 .. 127
 
 // Times in samples Q12, from the start (a symbol is 5/3 samples)
 typedef struct {
-    int32_t x[M17_DEMOD_RING]; // the samples, x[n % M17_DEMOD_RING]
-    uint32_t n;                // samples so far
+    int32_t buf[M17_DEMOD_RING]; // the samples (fsk4.h)
+    fsk4_ring x;
     int32_t dc_slow;           // the input's long-term mean, Q8 (hunting: the signs of a sync)
-    uint32_t hunt_t;           // hunting: the next start time to try (Q12)
+    int32_t hunt_t;            // hunting: the next start time to try (Q12)
     // hunting: the best sync within a few candidates
     bool cand;
-    uint32_t cand_t;
+    int32_t cand_t;
     int32_t cand_err, cand_g, cand_dc; // its error (Q8, level^2), gain (Q8, per symbol level), DC
     // locked
     bool locked;
-    uint32_t t0;               // the frame's start (its sync's first symbol, Q12)
+    int32_t t0;                // the frame's start (its sync's first symbol, Q12)
     int i;                     // the next symbol of the frame (0 .. 191)
     int32_t g, dc;             // gain (Q8, per symbol level: +3 is 3 g), DC
     int misses;                // frames in a row without their sync

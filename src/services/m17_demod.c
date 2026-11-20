@@ -29,7 +29,8 @@
 /*
  * OpenDMR, service: M17 demodulation (m17_demod.h) from the FM discriminator at 8 kHz: 4800 symbols/s, a symbol every
  * 5/3 samples, each taken by cubic (Catmull-Rom) interpolation at its time (the recording is already band-limited:
- * measured, no receive filter does better, m17/README.md).
+ * measured, no receive filter does better, m17/README.md). The ring, the interpolation, the fit and the slicing are
+ * fsk4.c's (shared with NXDN and DMR).
  *
  * Hunting: every third of a sample a start is tried: the 8 symbols of the LSF or the stream sync burst (all outer:
  * +-3) by their signs at the nearest samples first, then a least squares fit of gain and DC to the interpolated values
@@ -54,39 +55,27 @@
 #define G_MIN       (100 << 8)          // gain at least (Q8, per symbol level; samples halved: an outer +-3 ~ 3800)
 #define ERR_MAX     128                 // the fit's mean squared error at most, Q8 level^2 (0.5)
 #define HUNT_ERR    48                  // the same hunting (0.19: noise found syncs at 0.5; a signal's are 0.03 - 0.15)
-#define REBASE_AT   (1U << 19)          // samples: the Q12 times kept within 32 bits
-#define REBASE_BY   (1U << 18)
+#define REBASE_AT   (1U << 18)          // samples: the Q12 times kept within int32
+#define REBASE_BY   (1U << 17)          // a multiple of the ring
 
 static const int8_t LSF[8] = {3, 3, 3, 3, -3, -3, 3, -3};    // 0x55F7; the stream sync 0xFF5D is its negative
 static const int8_t STREAM[8] = {-3, -3, -3, -3, 3, 3, -3, 3};
 static const int8_t EOT[8] = {3, 3, 3, 3, 3, 3, -3, 3};      // 0x555D
 
 // the time of symbol i of a frame starting at t (Q12)
-static uint32_t sym_t(uint32_t t, int i)
+static int32_t sym_t(int32_t t, int i)
 {
-    return t + ((uint32_t)i * 20480U + 1U) / 3U;
+    return fsk4_sym_t(t, i, FSK4_SPS_4800_NUM, FSK4_SPS_DEN);
 }
 
-static int32_t at(const m17_demod *d, uint32_t n)
+static int32_t sample(const m17_demod *d, int32_t t)
 {
-    return d->x[n % M17_DEMOD_RING];
+    return fsk4_at(&d->x, t);
 }
 
-// the signal at time t (Q12), cubic interpolation; needs samples up to t + 2
-static int32_t sample(const m17_demod *d, uint32_t t)
+static bool available(const m17_demod *d, int32_t t)
 {
-    uint32_t i = t >> Q;
-    int32_t f = (int32_t)(t & (ONE - 1));
-    int32_t p0 = at(d, i - 1), p1 = at(d, i), p2 = at(d, i + 1), p3 = at(d, i + 2);
-    int32_t a = (p2 - p0) / 2;
-    int32_t b = p0 - (5 * p1) / 2 + 2 * p2 - p3 / 2;
-    int32_t c = (3 * (p1 - p2) + p3 - p0) / 2;
-    return p1 + ((((((c * f) >> Q) + b) * f) >> Q) + a) * f / ONE;
-}
-
-static bool available(const m17_demod *d, uint32_t t)
-{
-    return ((t >> Q) + 3) <= d->n;
+    return fsk4_have(&d->x, t);
 }
 
 // Gain (Q8) and DC by least squares of the 8 symbols at t to the pattern, the error (Q8, mean squared, in levels^2);
@@ -95,54 +84,41 @@ static bool available(const m17_demod *d, uint32_t t)
 unsigned long m17_demod_fits; // the PC tests: how much hunting costs
 #endif
 
-static bool fit(const m17_demod *d, uint32_t t, const int8_t *p, int32_t *g, int32_t *dc, int32_t *err, int32_t max)
+static bool fit(const m17_demod *d, int32_t t, const int8_t *p, int32_t *g, int32_t *dc, int32_t *err, int32_t max)
 {
 #ifdef M17_DEMOD_COUNT
     m17_demod_fits++;
 #endif
-    int32_t v[8], sp = 0, sv = 0, spv = 0;
+    int32_t v[8];
+    fsk4_fit_t f;
     for (int k = 0; k < 8; k++) {
         v[k] = sample(d, sym_t(t, k));
-        sp += p[k];
-        sv += v[k];
-        spv += p[k] * v[k];
     }
-    int32_t det = 8 * 72 - sp * sp;
-    int32_t gq = (int32_t)(((int64_t)(8 * spv - sp * sv) << 8) / det);
-    if (gq < G_MIN) {
+    if (!fsk4_fit(v, p, 8, G_MIN, max, &f)) {
         return false;
     }
-    int32_t dcv = (int32_t)(((int64_t)sv * 256 - (int64_t)gq * sp) / (8 * 256));
-    int64_t e2 = 0;
-    for (int k = 0; k < 8; k++) {
-        int32_t e = v[k] - ((gq * p[k]) >> 8) - dcv;
-        e2 += (int64_t)e * e;
-    }
-    // (e2 / 8) / (gq / 256)^2, Q8
-    int64_t gg = ((int64_t)gq * gq) >> 8;
-    int32_t en = (int32_t)((e2 * 256 * 32) / (gg ? gg : 1));
-    *g = gq;
-    *dc = dcv;
-    *err = en;
-    return en < max;
+    *g = f.g;
+    *dc = f.dc;
+    *err = f.err;
+    return true;
 }
 
 // a sample as a soft symbol: (v - dc) / gain x M17_SOFT_ONE (gain Q8 a level), -127 .. 127
 static int slice(const m17_demod *d, int32_t v)
 {
-    int32_t z = ((v - d->dc) * 16) / ((d->g >> 8) ? (d->g >> 8) : 1);
-    return (z > 127) ? 127 : (z < -127) ? -127 : (int)z;
+    return fsk4_soft(v, d->g, d->dc, 16);
 }
 
 void m17_demod_init(m17_demod *d, m17_demod_cb cb, void *ctx)
 {
     memset(d, 0, sizeof(*d));
+    fsk4_ring_init(&d->x, d->buf, M17_DEMOD_RING);
     d->cb = cb;
     d->ctx = ctx;
     d->hunt_t = 4U << Q;
 }
 
-static void lock(m17_demod *d, uint32_t t, int32_t g, int32_t dc)
+static void lock(m17_demod *d, int32_t t, int32_t g, int32_t dc)
 {
     d->locked = true;
     d->t0 = t;
@@ -155,7 +131,7 @@ static void lock(m17_demod *d, uint32_t t, int32_t g, int32_t dc)
     d->syncs++;
 }
 
-static void unlock(m17_demod *d, uint32_t from)
+static void unlock(m17_demod *d, int32_t from)
 {
     d->locked = false;
     d->cand = false;
@@ -166,14 +142,14 @@ static void unlock(m17_demod *d, uint32_t from)
 static void hunt(m17_demod *d)
 {
     while (!d->locked && available(d, sym_t(d->hunt_t, 7))) {
-        uint32_t t = d->hunt_t;
+        int32_t t = d->hunt_t;
         d->hunt_t += HUNT_STEP;
         // the signs at the nearest samples against the LSF pattern (the stream sync's are the opposite)
         int32_t ref = d->dc_slow >> 8;
         int same = 0;
         for (int k = 0; k < 8; k++) {
-            uint32_t s = (sym_t(t, k) + (ONE / 2)) >> Q;
-            same += ((at(d, s) > ref) == (LSF[k] > 0));
+            uint32_t s = (uint32_t)((sym_t(t, k) + (ONE / 2)) >> Q);
+            same += ((d->x.x[s & d->x.mask] > ref) == (LSF[k] > 0));
         }
         const int8_t *p = (same >= 7) ? LSF : (same <= 1) ? STREAM : NULL;
         int32_t g, dc, err;
@@ -189,7 +165,7 @@ static void hunt(m17_demod *d)
         if (d->cand && ((int32_t)(t - d->cand_t) > 2 * ONE)) { // the best of those close together: refined
             const int8_t *best_p = NULL;
             for (int s = -1; s <= 1; s += 2) {
-                uint32_t tt = d->cand_t + (uint32_t)(s * FINE_STEP);
+                int32_t tt = d->cand_t + s * FINE_STEP;
                 for (int q = 0; q < 2; q++) {
                     const int8_t *pp = q ? STREAM : LSF;
                     if (fit(d, tt, pp, &g, &dc, &err, HUNT_ERR) && (err < d->cand_err)) {
@@ -213,7 +189,7 @@ static void track(m17_demod *d)
 {
     while (d->locked) {
         if (d->i < FRAME) {
-            uint32_t t = sym_t(d->t0, d->i);
+            int32_t t = sym_t(d->t0, d->i);
             if (!available(d, t)) {
                 return;
             }
@@ -221,15 +197,15 @@ static void track(m17_demod *d)
             d->i++;
             continue;
         }
-        uint32_t t1 = d->t0 + FRAME_T;
-        if (!available(d, sym_t(t1 + (uint32_t)(TRACK * FINE_STEP), 7))) {
+        int32_t t1 = d->t0 + FRAME_T;
+        if (!available(d, sym_t(t1 + TRACK * FINE_STEP, 7))) {
             return;
         }
         int32_t best_err = ERR_MAX, bg = 0, bdc = 0;
-        uint32_t bt = 0;
+        int32_t bt = 0;
         const int8_t *bp = NULL;
         for (int s = -TRACK; s <= TRACK; s++) {
-            uint32_t tt = t1 + (uint32_t)(s * FINE_STEP);
+            int32_t tt = t1 + s * FINE_STEP;
             for (int q = 0; q < 2; q++) {
                 const int8_t *pp = q ? EOT : STREAM;
                 int32_t g, dc, err;
@@ -274,24 +250,23 @@ static void track(m17_demod *d)
 void m17_demod_samples(m17_demod *d, const int16_t *x, int count)
 {
     for (int k = 0; k < count; k++) {
-        int32_t s = x[k] >> 1; // halved: the interpolation's products within 32 bits
-        d->x[d->n % M17_DEMOD_RING] = s;
-        d->n++;
+        int32_t s = x[k] >> 1; // halved
+        fsk4_put(&d->x, s);
         d->dc_slow += ((s << 8) - d->dc_slow) >> 10;
     }
     // the hunt never looks further back than the ring holds
-    uint32_t oldest = (d->n > M17_DEMOD_RING - 8) ? ((d->n - M17_DEMOD_RING + 8) << Q) : 0;
-    if (!d->locked && ((int32_t)(d->hunt_t - oldest) < 0)) {
+    int32_t oldest = (d->x.n > M17_DEMOD_RING - 8) ? (int32_t)((d->x.n - M17_DEMOD_RING + 8) << Q) : 0;
+    if (!d->locked && (d->hunt_t < oldest)) {
         d->hunt_t = oldest;
         d->cand = false;
     }
     hunt(d);
     track(d);
     hunt(d); // after an unlock
-    if (d->n >= REBASE_AT) {
-        d->n -= REBASE_BY;
-        d->hunt_t -= REBASE_BY << Q;
-        d->t0 -= REBASE_BY << Q;
-        d->cand_t -= REBASE_BY << Q;
+    if (d->x.n >= REBASE_AT) {
+        fsk4_rebase(&d->x, REBASE_BY);
+        d->hunt_t -= (int32_t)(REBASE_BY << Q);
+        d->t0 -= (int32_t)(REBASE_BY << Q);
+        d->cand_t -= (int32_t)(REBASE_BY << Q);
     }
 }

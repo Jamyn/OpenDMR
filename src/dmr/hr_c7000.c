@@ -32,6 +32,7 @@
 #include <stdio.h>
 #include "dmr_compat.h"
 #include "hr_c7000.h"
+#include "dmr.h"
 #include "systime.h"
 #include "p25_phy.h"
 
@@ -404,62 +405,7 @@ static inline bool hrc7000CheckTimeSlotFilter(void)
 
 bool HRC7000CheckTalkGroupFilter(void)
 {
-	if (((hrc.receivedTgOrPcId >> 24) == PC_CALL_FLAG) && (settingsUsbMode != USB_MODE_HOTSPOT))
-	{
-		// Handle private calls if they are allowed
-		if((nonVolatileSettings.privateCalls != 0) || ((trxTalkGroupOrPcId >> 24) == PC_CALL_FLAG))
-		{
-			// Monitor all private calls if DMR filter = None. Only allow private call to this radio in other cases.
-			if((nonVolatileSettings.dmrDestinationFilter == DMR_DESTINATION_FILTER_NONE) || (hrc.receivedTgOrPcId == (trxDMRID | (PC_CALL_FLAG << 24))))
-			{
-				return true;
-			}
-		}
-		else
-		{
-			return false;
-		}
-	}
-
-	// All call bypasses filtering
-	if (hrc.receivedTgOrPcId == ALL_CALL_VALUE)
-	{
-		return true;
-	}
-
-	switch(nonVolatileSettings.dmrDestinationFilter)
-	{
-		case DMR_DESTINATION_FILTER_TG:
-			return ((trxTalkGroupOrPcId & 0x00FFFFFF) == hrc.receivedTgOrPcId);
-			break;
-
-		case DMR_DESTINATION_FILTER_DC:
-			return codeplugContactsContainsPC(hrc.receivedSrcId);
-			break;
-
-		case DMR_DESTINATION_FILTER_RXG:
-			for(int i = 0; i < currentRxGroupData.NOT_IN_CODEPLUG_numTGsInGroup; i++)
-			{
-				if (currentRxGroupData.NOT_IN_CODEPLUG_contactsTG[i] == hrc.receivedTgOrPcId)
-				{
-					return true;
-				}
-			}
-
-			// Also include currently selected talkgroup even if it is not in the RXG
-			if ((trxTalkGroupOrPcId & 0x00FFFFFF) == hrc.receivedTgOrPcId)
-			{
-				return true;
-			}
-
-			return false;
-			break;
-
-		default:
-			break;
-	}
-
-	return true;
+	return dmr_tg_filter(hrc.receivedTgOrPcId, hrc.receivedSrcId); // dmr.c
 }
 
 static bool hrc7000CheckColourCodeFilter(void)

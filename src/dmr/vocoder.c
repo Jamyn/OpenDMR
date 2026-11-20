@@ -147,8 +147,17 @@ void vocoderDecodeFrame(const uint8_t *in9, int16_t *pcm)
     rx_capture_frame(in9, ambe_dec_frame(&decoder, in9, pcm)); // debug: the frames to the flash (rx_capture.h)
 }
 
+// Over the cable (tests of the receive against known content: dmr_soft/py): not 0, every frame sent is the 1031 Hz
+// tone frame of the hotspot's DMR test file instead of the mic's (DMR and NXDN transmit)
+volatile uint32_t vocoder_tx_test;
+
 void vocoderEncodeFrame(const int16_t *pcm, uint8_t *out9)
 {
+    if (vocoder_tx_test) {
+        static const uint8_t tone[9] = {0xCE, 0xA8, 0xFE, 0x83, 0xAC, 0xC4, 0x58, 0x20, 0x0A};
+        memcpy(out9, tone, 9);
+        return;
+    }
     if (!encoder_ready) {
         ambe_enc_init(&encoder);
         encoder_ready = 1;

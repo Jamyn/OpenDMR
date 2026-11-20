@@ -51,6 +51,7 @@
 #include "p25_radio.h"
 #include "nxdn_radio.h"
 #include "m17_radio.h"
+#include "dmr_soft.h"
 #include "radio_internal.h"
 
 #define TUNE_SETTLE_MS 20 // after a channel change the FD6818 noise reading is low a moment: no squelch opening
@@ -262,6 +263,10 @@ void tune_channel(const codeplug_channel_t *next, bool valid)
         m17_radio_stop();
         rs.m17_running = false;
     }
+    if (rs.dmrs_running) {
+        dmr_soft_stop();
+        rs.dmrs_running = false;
+    }
 
     if (valid) {
         memcpy(&rs.channel, next, sizeof(rs.channel));
@@ -342,6 +347,11 @@ void tune_channel(const codeplug_channel_t *next, bool valid)
         if (rs.channel.mode == CODEPLUG_MODE_M17) {
             m17_radio_start();
             rs.m17_running = true;
+        }
+        // DMR: received in software the same way (dmr_soft.c); the engine stands aside but transmits
+        if ((rs.channel.mode == CODEPLUG_MODE_DMR) && dmr_soft_wanted()) {
+            dmr_soft_start();
+            rs.dmrs_running = true;
         }
     }
     vox_setup();

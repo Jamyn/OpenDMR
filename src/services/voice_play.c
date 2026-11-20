@@ -30,7 +30,7 @@
  * OpenDMR, service: the voice playback of the NXDN and M17 receivers (voice_play.h).
  *
  * The feeder task, every tick (1 ms): off until enough frames are queued; then the speaker on as sound.c turns it on
- * for a beep: the audio switch to the baseband and the prompt path first, silence for CLEAR_MS (the FIFO cleared), then the amplifier (and the
+ * for a beep: the audio switch to the baseband and the prompt path first, silence for PATH_SETTLE_MS, then the amplifier (and the
  * green LED), silence for AMP_START_MS while it starts; then one block (16 samples: twice real time) a tick while the
  * FIFO has room. One block only: the FIFO's full flag comes late, several at once overran it and samples were lost
  * (heard as the voice shaking, as pops; NXDN and M17 both, 2026-11). Out of voice while the call goes on: silence; the
@@ -47,8 +47,7 @@
 #include "radio_hooks.h"
 #include "voice_play.h"
 
-#define CLEAR_MS       40 // the audio path switched, silence into the FIFO before the amplifier goes on: the FIFO's
-                          // old content played out unheard (sound.c)
+#define PATH_SETTLE_MS 10 // the audio path switched, silence into the FIFO, before the amplifier goes on (sound.c)
 #define AMP_START_MS   75 // the amplifier on before the voice
 #define AMP_STOP_MS    20 // the amplifier off, before the audio path switches back
 
@@ -144,7 +143,7 @@ static void feed_task(void *arg)
         }
         if (state == PATH) { // the path settling, the voice kept queued
             silence(block);
-            if (waited(CLEAR_MS)) {
+            if (waited(PATH_SETTLE_MS)) {
                 amp(true);
                 go(AMP);
             }

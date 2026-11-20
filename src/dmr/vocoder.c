@@ -41,8 +41,11 @@
 
 extern uint8_t __vocoder_ram_start[], __vocoder_ram_end[], __vocoder_flash_start[];
 extern uint8_t __p25_ram_start[], __p25_ram_end[], __p25_flash_start[];
+extern uint8_t __m17_ram_start[], __m17_ram_end[], __m17_flash_start[];
 
 static uint8_t overlay = OVERLAY_NONE; // which one is in the overlay RAM (ckcpu.ld)
+static volatile uint8_t owner = OVERLAY_NONE; // overlay_claim()
+volatile uint32_t overlay_refused;
 #define loaded (overlay == OVERLAY_AMBE) // the vocoder is in the RAM
 
 // The encoder's profile (vocoder/c/ambe/ambe_enc.c PROF): APB clocks (84 MHz) a step, summed; read over the cable
@@ -89,11 +92,16 @@ void vocoder_load(void)
     overlay = OVERLAY_AMBE;
 }
 
-void vocoder_sync(void)
+bool vocoder_sync(void)
 {
     if (!loaded) {
+        if ((owner != OVERLAY_NONE) && (owner != OVERLAY_AMBE)) {
+            overlay_refused++;
+            return false;
+        }
         vocoder_load();
     }
+    return true;
 }
 
 void overlay_use(int which)
@@ -101,11 +109,32 @@ void overlay_use(int which)
     if (overlay == which) {
         return;
     }
+    if ((owner != OVERLAY_NONE) && (owner != which)) {
+        overlay_refused++;
+        return;
+    }
     if (which == OVERLAY_P25) {
         memcpy(__p25_ram_start, __p25_flash_start, (size_t)(__p25_ram_end - __p25_ram_start));
         overlay = OVERLAY_P25;
+    } else if (which == OVERLAY_M17) {
+        memcpy(__m17_ram_start, __m17_flash_start, (size_t)(__m17_ram_end - __m17_ram_start));
+        overlay = OVERLAY_M17;
     } else if (which == OVERLAY_AMBE) {
         vocoder_load();
+    }
+}
+
+void overlay_claim(int which)
+{
+    owner = OVERLAY_NONE; // (the last owner released it; a claim over another's is a mistake, the new one wins)
+    overlay_use(which);
+    owner = (uint8_t)which;
+}
+
+void overlay_release(int which)
+{
+    if (owner == which) {
+        owner = OVERLAY_NONE;
     }
 }
 

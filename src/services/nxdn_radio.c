@@ -31,8 +31,8 @@
  *
  * The modem records its AF input (the FD6818's discriminator, the DMR settings kept) in two halves of 256 samples;
  * the task reads each half as the modem finishes it (every 32 ms) into nxdn_core.c, which finds the frames and decodes
- * them. Voice frames (VCH, AMBE+2 in DMR's bit order) go through our vocoder into a queue of 20 ms frames; a second,
- * small task feeds them into the prompt FIFO (8 kHz, the path the beeps take), which plays while the modem stays in FM.
+ * them. Voice frames (VCH, AMBE+2 in DMR's bit order) go through our vocoder into the playback's queue of 20 ms frames
+ * (voice_play.c: into the prompt FIFO, the path the beeps take, which plays while the modem stays in FM).
  * The caller and the group come from the SACCH superframe (VCALL) or a FACCH1; a TX_REL or no voice for CALL_TIMEOUT
  * ends the call. The demodulator's state and the voice queue live in the vocoder's overlay RAM after its own.
  *
@@ -61,12 +61,12 @@
 #include "dmr_ids.h"
 #include "flash.h"
 #include "dmr_compat.h"
+#include "voice_play.h"
 
 #define PCM_FRAMES     16   // 320 ms of decoded voice
 #define PLAY_START     6    // frames queued before the playback starts: they come 4 at a time every 80 ms, a frame
                             // decoded once its last half (32 ms) is read
 #define CALL_TIMEOUT   320  // ms without a voice frame: the call ended (a frame is 80 ms)
-#define AMP_START_MS   75   // the amplifier on before the voice (sound.c)
 #define POLL_MS        4    // the recording looked at this often (a half is 32 ms)
 #define TAP_SAMPLES    2048 // the last samples as recorded, for tools over the cable (256 ms)
 #define VCH_LOG        256  // the last voice frames received, for tools over the cable (5 s)
@@ -78,9 +78,7 @@ volatile nxdn_radio_stats_t nxdn_radio_stats;
 
 static nxdn_rx rx OVERLAY_BSS;
 static nxdn_sacch_super super OVERLAY_BSS;
-static int16_t pcm[PCM_FRAMES][160] OVERLAY_BSS;
-static volatile uint32_t pcm_in, pcm_out;  // frames put in / taken out (the feeder's)
-static uint32_t pcm_pos;                    // samples of pcm[pcm_out] already in the FIFO (the feeder's)
+static int16_t pcm[PCM_FRAMES][VOICE_PLAY_SAMPLES] OVERLAY_BSS; // the playback's queue
 int16_t nxdn_tap[TAP_SAMPLES] OVERLAY_BSS; // the recording, nxdn_tap_n samples in so far (ring)
 volatile uint32_t nxdn_tap_n;
 volatile uint32_t nxdn_tap_hold; // not 0 (over the cable): the tap kept as it is, to be read out whole
@@ -106,10 +104,9 @@ static TickType_t play_next;
 uint8_t nxdn_vch_log[VCH_LOG][9] OVERLAY_BSS; // the voice frames as received (ring, nxdn_vch_log_n so far), for
 volatile uint32_t nxdn_vch_log_n;              // nxdn/py/vch_check.py against the frames sent
 
-static StaticTask_t task_tcb, feed_tcb;
+static StaticTask_t task_tcb;
 static StackType_t task_stack[1792]; // 7 KB: the frame decoding, our AMBE decoder; the encoder (transmit) ~6.5 KB
-static StackType_t feed_stack[192];
-static TaskHandle_t task, feeder;
+static TaskHandle_t task;
 static volatile bool running;
 static volatile bool busy; // the task is using the overlay
 
@@ -136,11 +133,6 @@ static TickType_t last_voice;
 static volatile TickType_t heard_at;
 static volatile bool heard;
 
-/* the playback, the feeder's: 0 off, 1 the amplifier starting, 2 playing */
-static volatile int play_state;
-volatile uint32_t nxdn_feed_blocks = 1; // blocks into the FIFO a tick at most (16 samples: 2 x real time); over the cable
-static TickType_t play_since;
-static volatile bool play_wanted;
 
 /* ---- the call ---- */
 
@@ -189,7 +181,7 @@ static void call_begin(void)
 static void call_end(void)
 {
     call.active = false;
-    play_wanted = false; // the feeder plays out what is queued, then stops
+    voice_play_end(); // what is queued played out, then the speaker off
     memset(&super, 0, sizeof(super));
     call_publish();
 }
@@ -224,27 +216,25 @@ static void message(const uint8_t *msg, int len, uint8_t ran)
 
 static void voice(const uint8_t ambe[9])
 {
-    if ((pcm_in - pcm_out) >= PCM_FRAMES) { // the feeder fell behind: the newest frame dropped
+    int16_t *out = voice_play_frame();
+    if (!out) { // the playback fell behind: the newest frame dropped
         nxdn_radio_stats.pcm_drops++;
         return;
     }
     memcpy(nxdn_vch_log[nxdn_vch_log_n % VCH_LOG], ambe, 9);
     nxdn_vch_log_n++;
     uint32_t t0 = systime_get_us();
-    vocoderDecodeFrame(ambe, pcm[pcm_in % PCM_FRAMES]);
+    vocoderDecodeFrame(ambe, out);
     uint32_t took = systime_get_us() - t0;
     if (nxdn_tap_source == 1) {
-        tap_put(pcm[pcm_in % PCM_FRAMES], 160);
+        tap_put(out, VOICE_PLAY_SAMPLES);
     }
     nxdn_radio_stats.dec_us_sum += took;
     if (took > nxdn_radio_stats.dec_us_max) {
         nxdn_radio_stats.dec_us_max = took;
     }
-    pcm_in++;
+    voice_play_put();
     nxdn_radio_stats.vch++;
-    if ((pcm_in - pcm_out) >= PLAY_START) {
-        play_wanted = true;
-    }
 }
 
 static void on_frame(void *ctx, const nxdn_frame_t *f)
@@ -307,89 +297,24 @@ static void on_frame(void *ctx, const nxdn_frame_t *f)
     call_publish();
 }
 
-/* ---- the playback: the prompt FIFO (8 kHz, 16 bits little endian, MODEM_BEEP_BLOCK bytes a write) ---- */
+/* ---- the playback (voice_play.c) ---- */
 
-static void play_on(bool on)
+// the samples into the FIFO (the tap: nxdn_tap_source 2)
+static void play_tap(const int16_t *x, int n)
 {
-    if (on) {
-        radio_beep_path(true);
-        modem_beep(true);
-        radio_dmr_audio(true);
-        leds_green(true);
-    } else {
-        radio_dmr_audio(false);
-        modem_beep(false);
-        radio_beep_path(false);
-        leds_green(false);
+    if (nxdn_tap_source == 2) {
+        tap_put(x, n);
     }
 }
 
-static void feed_task(void *arg)
-{
-    uint8_t block[MODEM_BEEP_BLOCK];
-
-    (void)arg;
-    for (;;) {
-        vTaskDelay(1);
-        int state = play_state;
-        if (state == 0) {
-            if (running && !tx_on && play_wanted) {
-                play_on(true);
-                play_since = xTaskGetTickCount();
-                play_state = 1;
-            }
-            continue;
-        }
-        if (state == 1) { // the amplifier starting: silence meanwhile, the voice kept queued
-            if (!modem_beep_fifo_full()) {
-                memset(block, 0, sizeof(block));
-                modem_beep_write(block);
-            }
-            if ((xTaskGetTickCount() - play_since) >= pdMS_TO_TICKS(AMP_START_MS)) {
-                play_state = 2;
-            }
-            continue;
-        }
-        // playing: a block a tick while the FIFO has room (as sound.c: several at once overran it, its full flag
-        // comes late, and samples were lost: the voice shook); out of voice: silence while the call goes on, else the end
-        for (int blocks = 0; running && !tx_on && (blocks < (int)nxdn_feed_blocks) && !modem_beep_fifo_full();
-             blocks++) {
-            if (pcm_in == pcm_out) {
-                if (!play_wanted) {
-                    break;
-                }
-                nxdn_radio_stats.underruns++;
-                memset(block, 0, sizeof(block));
-                modem_beep_write(block);
-                continue;
-            }
-            const int16_t *frame = pcm[pcm_out % PCM_FRAMES];
-            for (int i = 0; i < (MODEM_BEEP_BLOCK / 2); i++) {
-                int16_t s = frame[pcm_pos + (uint32_t)i];
-                block[2 * i] = (uint8_t)s;
-                block[2 * i + 1] = (uint8_t)((uint16_t)s >> 8);
-            }
-            modem_beep_write(block);
-            if (nxdn_tap_source == 2) {
-                tap_put(&frame[pcm_pos], MODEM_BEEP_BLOCK / 2);
-            }
-            nxdn_radio_stats.feed_writes++;
-            pcm_pos += MODEM_BEEP_BLOCK / 2;
-            if (pcm_pos >= 160) {
-                pcm_pos = 0;
-                pcm_out++;
-            }
-        }
-        if (!running || tx_on || (!play_wanted && (pcm_in == pcm_out))) {
-            play_on(false);
-            pcm_pos = 0;
-            if (!running || tx_on) {
-                pcm_out = pcm_in;
-            }
-            play_state = 0;
-        }
-    }
-}
+static const voice_play_cfg_t play_cfg = {
+    .frames = pcm,
+    .count = PCM_FRAMES,
+    .start = PLAY_START,
+    .underruns = &nxdn_radio_stats.underruns,
+    .writes = &nxdn_radio_stats.feed_writes,
+    .tap = play_tap,
+};
 
 /* ---- transmit ---- */
 
@@ -419,9 +344,7 @@ static void transmit(void)
         call_end();
     }
     tx_on = true;
-    while (play_state != 0) { // the feeder off the prompt path
-        vTaskDelay(1);
-    }
+    voice_play_stop();
     nxdn_fm_stop();
     vocoderReset();
     sound_mic_start();
@@ -496,7 +419,7 @@ static void transmit(void)
     nxdn_rx_init(&rx, on_frame, NULL);
     memset(&super, 0, sizeof(super));
     vocoderReset();
-    pcm_in = pcm_out = 0;
+    voice_play_start(&play_cfg);
     ignored = false;
     tx_on = false;
     tx_busy = false;
@@ -594,23 +517,19 @@ void nxdn_radio_start(void)
     if (!task) {
         task = xTaskCreateStatic(task_main, "nxdn", sizeof(task_stack) / sizeof(task_stack[0]), NULL,
                                  tskIDLE_PRIORITY + 3, task_stack, &task_tcb);
-        feeder = xTaskCreateStatic(feed_task, "nxdna", sizeof(feed_stack) / sizeof(feed_stack[0]), NULL,
-                                   tskIDLE_PRIORITY + 4, feed_stack, &feed_tcb);
     }
     // the modem to FM recording first: the DMR engine stands aside from then on, then our state into the overlay
     if (!nxdn_fm_start()) {
         return;
     }
     vTaskDelay(pdMS_TO_TICKS(5));
-    overlay_use(OVERLAY_AMBE);
+    overlay_claim(OVERLAY_AMBE);
     nxdn_rx_init(&rx, on_frame, NULL);
     memset(&super, 0, sizeof(super));
     memset(&call, 0, sizeof(call));
     ignored = false;
     memset(&published, 0, sizeof(published));
-    pcm_in = pcm_out = 0;
-    pcm_pos = 0;
-    play_wanted = false;
+    voice_play_start(&play_cfg);
     heard = false;
     running = true;
 }
@@ -621,10 +540,12 @@ void nxdn_radio_stop(void)
         return;
     }
     running = false;
-    while (busy || (play_state != 0)) { // the tasks done with the overlay and the prompt path
+    while (busy) { // the task done with the overlay
         vTaskDelay(1);
     }
+    voice_play_stop(); // the playback too
     nxdn_fm_stop();
+    overlay_release(OVERLAY_AMBE);
     call.active = false;
     call_publish();
 }

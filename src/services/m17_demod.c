@@ -91,8 +91,15 @@ static bool available(const m17_demod *d, uint32_t t)
 
 // Gain (Q8) and DC by least squares of the 8 symbols at t to the pattern, the error (Q8, mean squared, in levels^2);
 // false: no fit (too weak, or the error too large)
+#ifdef M17_DEMOD_COUNT
+unsigned long m17_demod_fits; // the PC tests: how much hunting costs
+#endif
+
 static bool fit(const m17_demod *d, uint32_t t, const int8_t *p, int32_t *g, int32_t *dc, int32_t *err, int32_t max)
 {
+#ifdef M17_DEMOD_COUNT
+    m17_demod_fits++;
+#endif
     int32_t v[8], sp = 0, sv = 0, spv = 0;
     for (int k = 0; k < 8; k++) {
         v[k] = sample(d, sym_t(t, k));
@@ -120,11 +127,11 @@ static bool fit(const m17_demod *d, uint32_t t, const int8_t *p, int32_t *g, int
     return en < max;
 }
 
-static uint8_t slice(const m17_demod *d, int32_t v)
+// a sample as a soft symbol: (v - dc) / gain x M17_SOFT_ONE (gain Q8 a level), -127 .. 127
+static int slice(const m17_demod *d, int32_t v)
 {
-    int32_t two = d->g >> 7; // 2 gain
-    v -= d->dc;
-    return (v >= two) ? 1 : (v >= 0) ? 0 : (v >= -two) ? 2 : 3;
+    int32_t z = ((v - d->dc) * 16) / ((d->g >> 8) ? (d->g >> 8) : 1);
+    return (z > 127) ? 127 : (z < -127) ? -127 : (int)z;
 }
 
 void m17_demod_init(m17_demod *d, m17_demod_cb cb, void *ctx)

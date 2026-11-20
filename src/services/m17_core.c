@@ -121,16 +121,31 @@ static uint16_t crc16(const uint8_t *data, unsigned n)
     return crc;
 }
 
-// coded bit k of the frame (the interleaver and the randomizer undone); -1 erased
-static int coded_bit(const uint8_t *payload, unsigned k)
+// coded bit k of the frame (the interleaver and the randomizer undone) as a soft value: > 0 a 0, < 0 a 1, the
+// larger the surer; 0 erased. The high bit of a dibit is the symbol's sign, the low one whether it is an outer symbol
+// (+-3: 1): sure as far as |z| is from 2
+static int coded_soft(const int8_t *payload, unsigned k)
 {
     unsigned a = (45 * k + 92 * k * k) % BITS;
-    uint8_t d = payload[a >> 1];
-    if (d > 3) {
+    int z = payload[a >> 1];
+    if (z == M17_SOFT_ERASED) {
+        return 0;
+    }
+    int v = (a & 1) ? (2 * M17_SOFT_ONE - (z < 0 ? -z : z)) : z;
+#ifdef M17_HARD_VITERBI // PC tests: the hard decision only, to compare
+    v = (v > 0) ? 1 : (v < 0) ? -1 : 0;
+#endif
+    return ((randomizer[a >> 3] >> (7 - (a & 7))) & 1) ? -v : v;
+}
+
+// the same hard: 0 or 1; -1 erased
+static int coded_bit(const int8_t *payload, unsigned k)
+{
+    unsigned a = (45 * k + 92 * k * k) % BITS;
+    if (payload[a >> 1] == M17_SOFT_ERASED) {
         return -1;
     }
-    unsigned bit = (a & 1) ? (d & 1) : (d >> 1);
-    return (int)(bit ^ ((randomizer[a >> 3] >> (7 - (a & 7))) & 1));
+    return coded_soft(payload, k) < 0;
 }
 
 static unsigned parity(unsigned v)
@@ -138,43 +153,48 @@ static unsigned parity(unsigned v)
     return (unsigned)__builtin_parity(v);
 }
 
+static bool kept_bit(unsigned c, bool stream)
+{
+    return stream ? (c % 12 != 11) : ((c % 61) % 4 != 2); // P2: 11 of 12; P1: 1, then 1 0 1 1 ...
+}
+
 // The Viterbi decoder: length data bits (and 4 flush bits) from the coded bits from first on, punctured with P1 (the
-// LSF) or P2 (a stream frame); punctured and erased bits cost nothing. Returns the path metric.
-static uint16_t viterbi(const uint8_t *payload, unsigned first, uint8_t *out, unsigned length, bool stream)
+// LSF) or P2 (a stream frame), soft: a branch costs the sureness of each coded bit it disagrees with; punctured and
+// erased bits cost nothing. Returns the coded bits (hard decisions) the decoded data, re-encoded, differs in.
+static uint16_t viterbi(const int8_t *payload, unsigned first, uint8_t *out, unsigned length, bool stream,
+                        uint16_t *soft)
 {
     uint16_t trace[244];
-    uint16_t cost[16], next[16];
+    uint32_t cost[16], next[16];
     unsigned k = first, steps = length + 4;
 
     cost[0] = 0;
     for (int s = 1; s < 16; s++) {
-        cost[s] = 0x4000;
+        cost[s] = 1U << 24;
     }
     for (unsigned step = 0; step < steps; step++) {
-        int obs[2];
+        int obs[2], have[2];
         for (int o = 0; o < 2; o++) {
-            unsigned c = 2 * step + (unsigned)o;
-            bool kept = stream ? (c % 12 != 11) : ((c % 61) % 4 != 2); // P2: 11 of 12; P1: 1, then 1 0 1 1 ...
-            obs[o] = kept ? coded_bit(payload, k++) : -1;
+            have[o] = kept_bit(2 * step + (unsigned)o, stream);
+            obs[o] = have[o] ? coded_soft(payload, k++) : 0;
+        }
+        // the cost of a branch putting out 0 or 1 for each of the two coded bits
+        uint32_t c0[2], c1[2];
+        for (int o = 0; o < 2; o++) {
+            c0[o] = (obs[o] < 0) ? (uint32_t)-obs[o] : 0;
+            c1[o] = (obs[o] > 0) ? (uint32_t)obs[o] : 0;
         }
         uint16_t t = 0;
         for (unsigned s = 0; s < 16; s++) {
             unsigned lo = s >> 1, hi = lo | 8; // the two states before: the oldest bit 0 or 1
             unsigned g1 = parity(s & 0x19), g2 = parity(s & 0x17); // the outputs from lo; from hi both inverted
-            unsigned clo = cost[lo], chi = cost[hi];
-            if (obs[0] >= 0) {
-                clo += g1 ^ (unsigned)obs[0];
-                chi += g1 ^ 1 ^ (unsigned)obs[0];
-            }
-            if (obs[1] >= 0) {
-                clo += g2 ^ (unsigned)obs[1];
-                chi += g2 ^ 1 ^ (unsigned)obs[1];
-            }
+            uint32_t clo = cost[lo] + (g1 ? c1[0] : c0[0]) + (g2 ? c1[1] : c0[1]);
+            uint32_t chi = cost[hi] + (g1 ? c0[0] : c1[0]) + (g2 ? c0[1] : c1[1]);
             if (chi < clo) {
                 t |= (uint16_t)(1U << s);
-                next[s] = (uint16_t)chi;
+                next[s] = chi;
             } else {
-                next[s] = (uint16_t)clo;
+                next[s] = clo;
             }
         }
         trace[step] = t;
@@ -188,7 +208,23 @@ static uint16_t viterbi(const uint8_t *payload, unsigned first, uint8_t *out, un
         }
         s = (s >> 1) | (((trace[step] >> s) & 1) << 3);
     }
-    return cost[0];
+    *soft = (uint16_t)((cost[0] / M17_SOFT_ONE > 0xFFFF) ? 0xFFFF : cost[0] / M17_SOFT_ONE);
+    // the hard errors: the decoded data through the code again, against the hard decisions
+    uint16_t errors = 0;
+    unsigned state = 0, c = 0;
+    k = first;
+    for (unsigned i = 0; i < steps; i++) {
+        unsigned bit = (i < length) ? ((out[i >> 3] >> (7 - (i & 7))) & 1) : 0;
+        state = ((state << 1) | bit) & 31;
+        unsigned g[2] = {parity(state & 0x19), parity(state & 0x17)};
+        for (int o = 0; o < 2; o++, c++) {
+            if (kept_bit(c, stream)) {
+                int h = coded_bit(payload, k++);
+                errors += (uint16_t)((h >= 0) && ((unsigned)h != g[o]));
+            }
+        }
+    }
+    return errors;
 }
 
 // the LICH: 4 Golay words in the coded bits 0 .. 95: 40 bits of the LSF and the chunk number (0 .. 5)
@@ -242,7 +278,7 @@ static m17_rx_event_t frame(m17_rx *r)
 {
     if (r->kind == 1) {
         uint8_t lsf[M17_LSF_BYTES];
-        r->metric = viterbi(r->payload, 0, lsf, 240, false);
+        r->metric = viterbi(r->payload, 0, lsf, 240, false, &r->soft_metric);
         if (crc16(lsf, sizeof(lsf)) != 0) {
             r->lsf_bad++;
             return M17_RX_NONE;
@@ -256,7 +292,7 @@ static m17_rx_event_t frame(m17_rx *r)
         return M17_RX_LSF;
     }
     uint8_t data[18];
-    r->metric = viterbi(r->payload, 96, data, 144, true);
+    r->metric = viterbi(r->payload, 96, data, 144, true, &r->soft_metric);
     if (!r->locked && r->metric > HUNT_METRIC) {
         r->stream_bad++;
         return M17_RX_NONE;
@@ -281,7 +317,15 @@ static m17_rx_event_t frame(m17_rx *r)
 
 m17_rx_event_t m17_rx_dibit(m17_rx *r, uint8_t dibit)
 {
-    bool erased = dibit > 3;
+    static const int8_t level[4] = {M17_SOFT_ONE, 3 * M17_SOFT_ONE, -M17_SOFT_ONE, -3 * M17_SOFT_ONE};
+    return m17_rx_symbol(r, (dibit > 3) ? M17_SOFT_ERASED : level[dibit]);
+}
+
+m17_rx_event_t m17_rx_symbol(m17_rx *r, int8_t z)
+{
+    bool erased = (z == M17_SOFT_ERASED);
+    uint8_t dibit = erased ? M17_DIBIT_ERASED
+                           : (z >= 2 * M17_SOFT_ONE) ? 1 : (z >= 0) ? 0 : (z >= -2 * M17_SOFT_ONE) ? 2 : 3;
     r->sync = (r->sync << 2) | (erased ? 0U : dibit);
     r->sync_valid = erased ? 0 : (uint8_t)((r->sync_valid < 255) ? r->sync_valid + 1 : 255);
 
@@ -311,7 +355,7 @@ m17_rx_event_t m17_rx_dibit(m17_rx *r, uint8_t dibit)
             }
             return M17_RX_NONE;
         }
-        r->payload[r->pos++] = dibit;
+        r->payload[r->pos++] = z;
         if (r->pos < PAYLOAD) {
             return M17_RX_NONE;
         }
@@ -321,7 +365,7 @@ m17_rx_event_t m17_rx_dibit(m17_rx *r, uint8_t dibit)
     }
 
     if (r->pos) { // collecting a frame found hunting
-        r->payload[r->pos - 1] = dibit;
+        r->payload[r->pos - 1] = z;
         if (++r->pos <= PAYLOAD) {
             return M17_RX_NONE;
         }

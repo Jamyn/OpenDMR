@@ -71,7 +71,13 @@
 #define PLAY_START    4    // frames queued before the playback starts (they come two at a time every 40 ms)
 #define CALL_TIMEOUT  400  // ms without a stream frame: the call ended
 #define POLL_MS       4    // the recording looked at this often (a half is 32 ms)
-#define VOICE_METRIC  24   // a stream frame with more coded bits wrong: its voice not played (silence)
+#ifdef M17_HARD_VITERBI    // the hard decision build (comparisons): as before
+#define VOICE_METRIC  24
+#else
+#define VOICE_METRIC  64   // a stream frame with more coded bits wrong: its voice not played (silence). With the soft
+                           // decisions frames of 25 - 48 wrong bits came out right 71 - 75 % (-115 dBm, 2026-11-20); a
+                           // noise frame has ~130: only those muted (a voice frame has no CRC: a wrong one can't be told)
+#endif
 // the test sweep (m17_tx_source 1): 300 Hz to 3 kHz in 2 s, again and again, a quarter of full scale
 #define SWEEP_LO      161061273U  // 300 Hz: 2^32 300 / 8000 a sample
 #define SWEEP_HI      1610612736U // 3 kHz
@@ -106,6 +112,11 @@ static StackType_t task_stack[STACK_WORDS] OVERLAY_BSS;
 #define M17_RAW_TAP 12000
 #define RAW_HOLD    4000
 uint8_t m17_tap[M17_TAP] OVERLAY_BSS;
+// the last stream frames decoded (their 16 bytes, then the hard and the soft metric), for checks against known content
+// over the cable (m17/py/m17_rx_check.py)
+#define M17_STREAM_LOG 64
+uint8_t m17_stream_log[M17_STREAM_LOG][20] OVERLAY_BSS;
+uint32_t m17_stream_log_n OVERLAY_BSS;
 uint32_t m17_tap_n OVERLAY_BSS;
 int16_t m17_raw_tap[M17_RAW_TAP] OVERLAY_BSS;
 uint32_t m17_raw_tap_n OVERLAY_BSS;
@@ -208,16 +219,29 @@ static void voice(const uint8_t stream[M17_STREAM_BYTES], bool good)
     }
 }
 
-static void on_dibit(void *ctx, uint8_t d)
+static void log_stream(void)
+{
+    uint8_t *log = m17_stream_log[m17_stream_log_n % M17_STREAM_LOG];
+    memcpy(log, rx.stream, M17_STREAM_BYTES);
+    log[16] = (uint8_t)rx.metric;
+    log[17] = (uint8_t)(rx.metric >> 8);
+    log[18] = (uint8_t)rx.soft_metric;
+    log[19] = (uint8_t)(rx.soft_metric >> 8);
+    m17_stream_log_n++;
+}
+
+static void on_dibit(void *ctx, int d)
 {
     (void)ctx;
-    m17_tap[m17_tap_n % M17_TAP] = d;
+    // the tap keeps dibits (5: lost), as the tools read it
+    m17_tap[m17_tap_n % M17_TAP] = (uint8_t)((d == M17_DEMOD_LOST) ? 5
+                                             : (d >= 2 * M17_SOFT_ONE) ? 1 : (d >= 0) ? 0 : (d >= -2 * M17_SOFT_ONE) ? 2 : 3);
     m17_tap_n++;
     if (d == M17_DEMOD_LOST) {
         m17_rx_reset(&rx);
         return;
     }
-    switch (m17_rx_dibit(&rx, d)) {
+    switch (m17_rx_symbol(&rx, (int8_t)d)) {
     case M17_RX_LSF:
         m17_radio_stats.lsfs++;
         call_begin();
@@ -225,6 +249,7 @@ static void on_dibit(void *ctx, uint8_t d)
         lsf();
         break;
     case M17_RX_STREAM:
+        log_stream();
         m17_radio_stats.streams++;
         m17_radio_stats.gain_sum += (uint32_t)dm.g;
         if (rx.metric > VOICE_METRIC) {

@@ -8,12 +8,12 @@
 
 static m17_rx rx;
 static m17_demod dm;
-static FILE *out;
+static FILE *out, *metrics; // metrics: a byte a stream frame (argv[3])
 static unsigned streams, metric_sum, metric_max, lsfs, eots, losts;
 static long dibits;
 static double gain_sum; // the demodulator's gain at each stream frame (per symbol level)
 
-static void on_dibit(void *ctx, uint8_t d)
+static void on_dibit(void *ctx, int d)
 {
     (void)ctx;
     if (d == M17_DEMOD_LOST) {
@@ -23,7 +23,7 @@ static void on_dibit(void *ctx, uint8_t d)
     }
     dibits++;
     bool had = rx.lsf_valid;
-    switch (m17_rx_dibit(&rx, d)) {
+    switch (m17_rx_symbol(&rx, (int8_t)d)) {
     case M17_RX_LSF:
         lsfs++;
         break;
@@ -36,6 +36,10 @@ static void on_dibit(void *ctx, uint8_t d)
         }
         if (out) {
             fwrite(rx.stream, 1, M17_STREAM_BYTES, out);
+        }
+        if (metrics) {
+            fputc(rx.metric > 255 ? 255 : rx.metric, metrics);
+            fputc(rx.soft_metric > 255 ? 255 : rx.soft_metric, metrics);
         }
         break;
     case M17_RX_EOT:
@@ -59,6 +63,7 @@ int main(int argc, char **argv)
     }
     FILE *in = fopen(argv[1], "rb");
     out = (argc > 2) ? fopen(argv[2], "wb") : NULL;
+    metrics = (argc > 3) ? fopen(argv[3], "wb") : NULL;
     if (!in) {
         return 1;
     }

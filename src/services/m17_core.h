@@ -37,6 +37,9 @@
 #include <stdint.h>
 
 #define M17_DIBIT_ERASED 4
+// soft symbols (m17_rx_symbol()): the level x M17_SOFT_ONE (+3: 48, -1: -16 ...), -127 .. 127; M17_SOFT_ERASED: none
+#define M17_SOFT_ONE     16
+#define M17_SOFT_ERASED  (-128)
 #define M17_LSF_BYTES    30 // DST 6, SRC 6, TYPE 2, META 14, CRC 2
 #define M17_STREAM_BYTES 16 // two Codec 2 3200 frames
 
@@ -56,14 +59,15 @@ typedef struct {
     uint16_t since;     // locked: dibits since the last frame's start
     uint8_t misses;     // locked: frames in a row without their sync
     uint8_t kind;       // the frame being collected: 1 LSF, 2 stream
-    uint8_t payload[184]; // its dibits
+    int8_t payload[184];  // its soft symbols
     // the results
     uint8_t lsf[M17_LSF_BYTES];
     bool lsf_valid;
     uint16_t fn;        // the frame number (15 bits)
     bool eos;           // the last stream frame
     uint8_t stream[M17_STREAM_BYTES];
-    uint16_t metric;    // the Viterbi's path metric: coded bits that differ (the last frame)
+    uint16_t metric;    // coded bits of the last frame that differ from the decoded data re-encoded (hard decisions)
+    uint16_t soft_metric; // the Viterbi's path cost (the soft values it went against, / M17_SOFT_ONE)
     // the LSF from the LICH: 6 chunks of 40 bits
     uint8_t lich_lsf[M17_LSF_BYTES];
     uint8_t lich_got;   // a bit per chunk
@@ -73,6 +77,8 @@ typedef struct {
 
 void m17_rx_init(m17_rx *r);
 m17_rx_event_t m17_rx_dibit(m17_rx *r, uint8_t dibit);
+// the same with a soft symbol (the demodulator's): the Viterbi weighs each coded bit by how sure it is
+m17_rx_event_t m17_rx_symbol(m17_rx *r, int8_t z);
 // the receiver hunting again (the stream given up)
 void m17_rx_reset(m17_rx *r);
 

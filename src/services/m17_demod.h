@@ -27,7 +27,7 @@
  */
 
 // M17 4FSK demodulation from FM discriminator audio at 8 kHz (the HR_C7000's recording, as NXDN's): no OS, no
-// hardware, all integer; also built on the PC (m17/c). Dibits out as on the air (+3 1, +1 0, -1 2, -3 3) for
+// hardware, all integer; also built on the PC (m17/c). Soft symbols out (the level x M17_SOFT_ONE, m17_core.h) for
 // m17_core.c.
 #ifndef M17_DEMOD_H
 #define M17_DEMOD_H
@@ -36,9 +36,9 @@
 #include <stdint.h>
 
 #define M17_DEMOD_RING 2048 // samples kept (256 ms; a frame is 320)
-#define M17_DEMOD_LOST 5    // given instead of a dibit: the signal lost, the frame receiver to start over
+#define M17_DEMOD_LOST 1000 // given instead of a symbol: the signal lost, the frame receiver to start over
 
-typedef void (*m17_demod_cb)(void *ctx, uint8_t dibit);
+typedef void (*m17_demod_cb)(void *ctx, int z); // z: a soft symbol (-127 .. 127) or M17_DEMOD_LOST
 
 // Times in samples Q12, from the start (a symbol is 5/3 samples)
 typedef struct {

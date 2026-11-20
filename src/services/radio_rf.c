@@ -168,12 +168,30 @@ static void rf_off_now(void)
    first 8 bits wrong, off at +28.0 20 % of the last 8). The FD6818 to the Tx frequency 4 ms ahead of the PA (it needs
    that long to settle: the first AMBE frame of the burst right 47 % tuned just before the PA, 72 % 1.5 ms ahead, ~90 %
    4 ms ahead, as the other two), the PA on at +26.9 ms (its ramp ~1.3 ms before the first symbol: the mask of
-   10.2.3.1.1 allows 1.5 ms; at full 0.2 ms later); off at +28.7 ms, ~0.4 ms after the last symbol. Each switch busy
-   waits its last 2 ms. */
+   10.2.3.1.1 allows 1.5 ms; at full 0.2 ms later); off at +28.7 ms, ~0.4 ms after the last symbol. The task sleeps
+   until each time, busy waiting only its last ~1.2 ms (wait_until()). */
 volatile uint32_t rf_gate_off_us = 28700, rf_gate_on_us = 26900; // tuned over the cable
 volatile uint32_t rf_gate_tune_us = 4000; // the FD6818 to the Tx frequency this much before the PA (0: just before it)
 static void rf_ask(uint32_t what);
 static volatile bool gate_on;
+static bool wait_until(uint32_t at);
+
+// Until systime_get_us() reaches at: asleep while more than a tick and a bit is left, the rest busy (at most ~1.2 ms).
+// The RF task is the highest: busy waiting through the 4 ms of the FD6818's settling and 2 ms before each switch took
+// so much of the CPU, with the AMBE encoder, that the UI task lost its events (a PTT release, 2026-11-20).
+// false: the gating stopped meanwhile
+static bool wait_until(uint32_t at)
+{
+    while ((int32_t)(at - systime_get_us()) > 1200) {
+        if (!gate_on) {
+            return false;
+        }
+        vTaskDelay(1);
+    }
+    while ((int32_t)(at - systime_get_us()) > 0) {
+    }
+    return true;
+}
 
 static void rf_gate(void)
 {
@@ -191,17 +209,18 @@ static void rf_gate(void)
         }
         uint32_t lead = burst ? 0 : rf_gate_tune_us;
         uint32_t at = t + (burst ? rf_gate_off_us : rf_gate_on_us) - lead;
-        while (gate_on && ((int32_t)(at - systime_get_us()) > 2000)) {
-            vTaskDelay(1);
-        }
-        while ((int32_t)(at - systime_get_us()) > 0) {
+        if (!wait_until(at)) {
+            break;
         }
         if (burst) {
             rf_off_now();
         } else if (lead) {
             lna(false, 0);
             fd6818_dmr_burst_tx(rs.channel.tx_freq);
-            while ((int32_t)(at + lead - systime_get_us()) > 0) {
+            if (!wait_until(at + lead)) { // stopped before the PA: the FD6818 back to receive
+                fd6818_dmr_burst_rx(rs.channel.rx_freq);
+                lna(true, rs.channel.rx_freq);
+                break;
             }
             rf_pa_up();
         } else {

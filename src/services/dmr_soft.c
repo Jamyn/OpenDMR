@@ -376,21 +376,26 @@ static void end_call(void)
 
 /* ---- transmit in software (direct mode) ---- */
 
-// a timeslot pair into the FIFO: ours (the guard, the burst, the guard), then the other one empty (48 bytes of dibits:
-// the stack is the encoder's)
+// the transmission's buffers off the stack: the AMBE encoder takes most of it
+static struct {
+    uint8_t lc[9], full[12], frags[4][4], b[DMR_BURST_BYTES], ambe[3][DMR_AMBE_BYTES], d[144];
+    int16_t pcm[160];
+} txm OVERLAY_BSS;
+
+// a timeslot pair into the FIFO: ours (the guard, the burst, the guard), then the other one empty
 static void put_burst(const uint8_t b[DMR_BURST_BYTES])
 {
-    uint8_t d[144];
-    memset(d, 0, sizeof(d));
+    uint8_t *d = txm.d;
+    memset(d, 0, sizeof(txm.d));
     for (int k = 0; k < 132; k++) {
         d[TX_GUARD + k] = (uint8_t)((b[k >> 2] >> (6 - 2 * (k & 3))) & 3);
     }
-    while (p25_phy_tx_room() < 2 * sizeof(d)) {
+    while (p25_phy_tx_room() < 2 * sizeof(txm.d)) {
         vTaskDelay(pdMS_TO_TICKS(5));
     }
-    p25_phy_tx_put(d, sizeof(d));
-    memset(d, 0, sizeof(d));
-    p25_phy_tx_put(d, sizeof(d));
+    p25_phy_tx_put(d, sizeof(txm.d));
+    memset(d, 0, sizeof(txm.d));
+    p25_phy_tx_put(d, sizeof(txm.d));
     dmr_soft_tx_stats[1]++;
 }
 
@@ -399,7 +404,9 @@ static void soft_transmit(void)
     static const uint8_t silence[DMR_AMBE_BYTES] = {0xB9, 0xE8, 0x81, 0x52, 0x61, 0x73, 0x00, 0x2A, 0x6B};
     static const uint8_t lcss[5] = {DMR_LCSS_FIRST, DMR_LCSS_CONT, DMR_LCSS_CONT, DMR_LCSS_LAST, DMR_LCSS_SINGLE};
     static const uint8_t null_frag[4] = {0, 0, 0, 0};
-    uint8_t lc[9], full[12], frags[4][4], b[DMR_BURST_BYTES], ambe[3][DMR_AMBE_BYTES];
+    uint8_t *lc = txm.lc, *full = txm.full, *b = txm.b;
+    uint8_t (*frags)[4] = txm.frags;
+    uint8_t (*ambe)[DMR_AMBE_BYTES] = txm.ambe;
     uint8_t cc = trxGetDMRColourCode();
     bool pc = (trxTalkGroupOrPcId >> 24) == PC_CALL_FLAG;
 
@@ -418,7 +425,7 @@ static void soft_transmit(void)
     if (keyed && dmr_soft_tx_gate) {
         radio_phy_tx_gate(true); // the PA on for our timeslot only
     }
-    int16_t pcm[160];
+    int16_t *pcm = txm.pcm;
     int halves = 0, nf = 0, pos = 0;
     bool ending = false;
     while (keyed) {

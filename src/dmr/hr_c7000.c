@@ -1888,13 +1888,16 @@ void RAM_CODE hrc7000TimeslotInterruptHandler(void)
 			}
 			else
 			{
+				// The terminator with LC goes out in this timeslot: the modem back to receive only in the next one
+				// (HRC7000InitDigitalDmrRx() here cut it off at its start: the PA stayed on with no data for the
+				// rest of the burst, no terminator on the air, 2026-11-20)
 				addTimerCallback(hrc7000TxBurstCallback, 29, MENU_ANY, false);				//allow time for the last burst to be sent then return to receive
-				HRC7000InitDigitalDmrRx();
 				slotState = DMR_STATE_TX_END_3_DMO;
 			}
 			break;
 
 		case DMR_STATE_TX_END_3_DMO:
+			HRC7000InitDigitalDmrRx();
 			slotState = DMR_STATE_IDLE;
 			trxIsTransmitting = false;
 			hrc.timeCode = -1;

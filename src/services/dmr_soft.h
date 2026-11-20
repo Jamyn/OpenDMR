@@ -36,6 +36,9 @@
 #include <stdint.h>
 
 extern volatile uint32_t dmr_soft_enabled; // 0: the HR_C7000 receives (over the cable: A / B tests)
+// direct mode (Rx == Tx) transmitted in software too (0: the HR_C7000 engine transmits); 50 mW (tests side by side);
+// counters of the last transmission: calls, bursts, AMBE frames encoded, FIFO underruns
+extern volatile uint32_t dmr_soft_tx, dmr_soft_tx_low_power, dmr_soft_tx_stats[4];
 
 bool dmr_soft_wanted(void); // a DMR channel would be received in software now
 void dmr_soft_start(void);

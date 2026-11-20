@@ -394,6 +394,7 @@ volatile uint32_t p25_phy_tx_state;
 volatile uint32_t p25_phy_tx_blocks;
 volatile uint32_t p25_phy_tx_underrun;
 volatile uint32_t p25_phy_tx_xor; // each dibit sent XOR this: 2 turns the symbols over (+3 <-> -3, +1 <-> -1), a test
+volatile uint32_t p25_phy_tx_isr_n = UINT32_MAX, p25_phy_tx_isr_us, p25_phy_tx_isr_next;
 
 // the transmit log (tools/debug/p25_txlog.py): the begin, the interrupts, the end
 p25_phy_txlog_t p25_phy_txlog[P25_PHY_TXLOG];
@@ -448,8 +449,8 @@ void p25_phy_tx_pad(void)
     }
 }
 
-// the next 144 dibits as 36 bytes; zeros (and an underrun) if the stream isn't there
-static void RAM_CODE next_block(uint8_t *out)
+// the next 144 dibits as 36 bytes; zeros (and an underrun) if the stream isn't there; true: data
+static bool RAM_CODE next_block(uint8_t *out)
 {
     bool have = p25_phy_tx_level() >= TX_BLOCK_DIBITS;
     for (int i = 0; i < P25_PHY_BLOCK_BYTES; i++) {
@@ -464,6 +465,7 @@ static void RAM_CODE next_block(uint8_t *out)
     } else {
         p25_phy_tx_underrun++;
     }
+    return have;
 }
 
 static void RAM_CODE write_half(int half, const uint8_t *b)
@@ -478,14 +480,19 @@ void RAM_CODE p25_phy_tx_isr(void)
 {
     uint8_t b[P25_PHY_BLOCK_BYTES];
     uint32_t n = p25_phy_tx_blocks++;
+    uint32_t now = systime_get_us();
 
     txlog(1, n);
-    next_block(b);
+    bool have = next_block(b);
     write_half((int)((n + 1) & 1), b);
+    p25_phy_tx_isr_us = now;
+    p25_phy_tx_isr_next = have;
+    p25_phy_tx_isr_n = n;
 }
 
 void p25_phy_tx_reset(void)
 {
+    p25_phy_tx_isr_n = UINT32_MAX;
     fifo_in = fifo_out = 0;
     p25_phy_tx_blocks = p25_phy_tx_underrun = 0;
 }

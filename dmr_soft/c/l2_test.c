@@ -84,6 +84,55 @@ int main(int argc, char **argv)
         printf("\n");
         n++;
     }
+    // transmit: each burst of the file made again from its content, byte for byte
+    if (f) {
+        rewind(f);
+    }
+    uint8_t lc9[9] = {0}, frags[4][4];
+    int vn = 0;
+    n = 0;
+    while (f && fgets(line, sizeof(line), f)) {
+        uint8_t b[33], made[33];
+        if (strncmp(line, "DMR", 3) || !hex(strchr(line + 5, ' ') + 1, b, 33)) {
+            continue;
+        }
+        int k = dmr_sync_kind(dmr_burst_middle(b), 4);
+        uint8_t v[3][9];
+        dmr_voice_frames(b, v);
+        if (DMR_SYNC_IS_DATA(k)) {
+            uint8_t cc, dt, info[12], full[12];
+            dmr_slot_type(b, &cc, &dt);
+            dmr_bptc196(b, info);
+            memcpy(lc9, info, 9);
+            dmr_lc_t p;
+            dmr_lc_parse(lc9, &p);
+            uint8_t lc2[9];
+            dmr_lc_make(lc2, p.flco, p.options, p.dst, p.src);
+            CHECK(!memcmp(lc2, lc9, 9), "LC made again, burst %d", n);
+            dmr_full_lc_make(lc9, (dt == DMR_DT_VOICE_LC_HEADER) ? DMR_MASK_VOICE_LC_HEADER : DMR_MASK_TERMINATOR_LC, full);
+            dmr_burst_data(made, full, cc, dt, k);
+            dmr_emb_lc_make(lc9, frags);
+            vn = 0;
+        } else if (k != DMR_SYNC_NONE) {
+            dmr_burst_voice_sync(made, v, k);
+            vn = 0;
+        } else {
+            static const uint8_t lcss[5] = {DMR_LCSS_FIRST, DMR_LCSS_CONT, DMR_LCSS_CONT, DMR_LCSS_LAST, DMR_LCSS_SINGLE};
+            static const uint8_t zero[4] = {0, 0, 0, 0};
+            uint8_t cc, pi, ls;
+            dmr_emb(b, &cc, &pi, &ls);
+            dmr_burst_voice_emb(made, v, cc, pi, lcss[vn], (vn < 4) ? frags[vn] : zero);
+            vn++;
+        }
+        bool same = !memcmp(made, b, 33);
+        printf("made again: burst %d %s\n", n, same ? "same" : "DIFFERENT");
+        CHECK(same, "burst %d made again", n);
+        n++;
+    }
+    // RS (12,9): Table B.18's first row made
+    uint8_t m1[9] = {1, 0, 0, 0, 0, 0, 0, 0, 0}, out[12];
+    dmr_full_lc_make(m1, 0, out);
+    CHECK((out[9] == 0x1C) && (out[10] == 0xBC) && (out[11] == 0xFD), "RS parity of row 1");
     printf("%s\n", fails ? "FAILED" : "all passed");
     return fails != 0;
 }

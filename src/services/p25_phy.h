@@ -108,6 +108,9 @@ void p25_phy_tx_pad(void);        // zeros up to a whole block (after the last d
 uint32_t p25_phy_tx_room(void);
 int p25_phy_tx_begin(bool low_power);
 void p25_phy_tx_end(void);
+// the last transmit interrupt: its number n (block n being sent since some 2 ms; UINT32_MAX: none yet), when
+// (systime_get_us()), and whether block n + 1 (just written) has data (not an underrun's zeros)
+extern volatile uint32_t p25_phy_tx_isr_n, p25_phy_tx_isr_us, p25_phy_tx_isr_next;
 
 // The transmit log: event 0 begin / end (arg 0 before the set up, 1 the send enabled, 2 the end), 1 the transmit
 // interrupt (arg its number)

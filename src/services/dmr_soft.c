@@ -42,8 +42,13 @@
  *   through our vocoder into the playback (voice_play.c), one call played at a time.
  * - no voice for CALL_TIMEOUT: the call over.
  *
- * The calls are shown as the engine's (dmr.c: the last heard list, the talker alias). The PTT: the recording off, the
- * HR_C7000 engine transmits (dmr_engine_transmit()), then the recording again. The demodulator's state and the voice
+ * The calls are shown as the engine's (dmr.c: the last heard list, the talker alias).
+ *
+ * Transmit, direct mode (Rx == Tx: soft_transmit()): the recording off, the bursts made here (dmr_l2.c) and sent
+ * through the P25 physical layer's FIFO, whose 30 ms blocks of 144 symbols are DMR's timeslots: ours the burst's 132
+ * symbols centred in it (10.2.3.1: 6 symbols of guard each side), the other one empty. The voice LC headers, the voice
+ * superframes (A the voice SYNC; B - E the LC embedded; F the null message), the last one finished with silence after
+ * the PTT, then the terminator with LC. Repeater mode: the HR_C7000 engine transmits (dmr_engine_transmit()). The demodulator's state and the voice
  * queue live after the vocoder's RAM (ckcpu.ld .dmrs_rx, where NXDN's is when NXDN runs).
  */
 
@@ -52,12 +57,14 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "systime.h"
+#include "modem.h"
 #include "vocoder.h"
 #include "p25_phy.h"
 #include "dmr_compat.h"
 #include "hr_c7000.h"
 #include "dmr.h"
 #include "afrx.h"
+#include "radio_hooks.h"
 #include "voice_play.h"
 #include "dmr_demod.h"
 #include "dmr_l2.h"
@@ -72,11 +79,15 @@
 #define BURST_LOG     32   // the last bursts, for tools over the cable
 #define A_MSE_MAX     77   // an A without its SYNC taken (the sync missed) when its symbols fit under 0.30 level^2
                            // (Q8): noise is 0.31 - 0.45, a signal at -116 dBm 0.12 - 0.2
+#define TX_HEADERS    3    // voice LC headers before the voice (the encoder's first burst comes ~70 ms after the PTT)
+#define TX_GUARD      6    // symbols each side of a burst in its 144
 #define TX_END_MS     3000 // the engine's transmission ending (a repeater's hang time) at most, before receiving again
 
 #define OVERLAY_BSS __attribute__((section(".dmrs_bss"))) // after the vocoder's RAM (ckcpu.ld), not zeroed
 
 volatile uint32_t dmr_soft_enabled = 1;
+volatile uint32_t dmr_soft_tx = 1, dmr_soft_tx_low_power, dmr_soft_tx_stats[4];
+volatile uint32_t dmr_soft_tx_gate = 1; // 0: the PA on in both timeslots (tests)
 volatile dmr_soft_stats_t dmr_soft_stats;
 // tests against known content (over the cable, the transmitter's vocoder_tx_test): not 0, each AMBE+2 frame played
 // judged: by its place in the burst, frames, bad (C0 + C1 corrections > 3), the tone frame after the FEC
@@ -363,10 +374,107 @@ static void end_call(void)
     }
 }
 
-// The PTT held: the recording and the playback are off (afrx.c); the engine transmits from its receive state from
-// scratch, until the PTT is released and its transmission (a repeater's hang time) is over
+/* ---- transmit in software (direct mode) ---- */
+
+// a timeslot pair into the FIFO: ours (the guard, the burst, the guard), then the other one empty (48 bytes of dibits:
+// the stack is the encoder's)
+static void put_burst(const uint8_t b[DMR_BURST_BYTES])
+{
+    uint8_t d[144];
+    memset(d, 0, sizeof(d));
+    for (int k = 0; k < 132; k++) {
+        d[TX_GUARD + k] = (uint8_t)((b[k >> 2] >> (6 - 2 * (k & 3))) & 3);
+    }
+    while (p25_phy_tx_room() < 2 * sizeof(d)) {
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
+    p25_phy_tx_put(d, sizeof(d));
+    memset(d, 0, sizeof(d));
+    p25_phy_tx_put(d, sizeof(d));
+    dmr_soft_tx_stats[1]++;
+}
+
+static void soft_transmit(void)
+{
+    static const uint8_t silence[DMR_AMBE_BYTES] = {0xB9, 0xE8, 0x81, 0x52, 0x61, 0x73, 0x00, 0x2A, 0x6B};
+    static const uint8_t lcss[5] = {DMR_LCSS_FIRST, DMR_LCSS_CONT, DMR_LCSS_CONT, DMR_LCSS_LAST, DMR_LCSS_SINGLE};
+    static const uint8_t null_frag[4] = {0, 0, 0, 0};
+    uint8_t lc[9], full[12], frags[4][4], b[DMR_BURST_BYTES], ambe[3][DMR_AMBE_BYTES];
+    uint8_t cc = trxGetDMRColourCode();
+    bool pc = (trxTalkGroupOrPcId >> 24) == PC_CALL_FLAG;
+
+    dmr_lc_make(lc, pc ? DMR_FLCO_UNIT : DMR_FLCO_GROUP, 0, trxTalkGroupOrPcId & 0xFFFFFF, trxDMRID);
+    dmr_emb_lc_make(lc, frags);
+    vocoderReset();
+    afrx_fifo_prepare(MODEM_MOD_SCALE_ONE); // the modem's 4FSK level as calibrated: DMR's +-1944 Hz
+    dmr_soft_tx_stats[0]++;
+    dmr_soft_tx_stats[1] = dmr_soft_tx_stats[2] = 0;
+    dmr_full_lc_make(lc, DMR_MASK_VOICE_LC_HEADER, full);
+    dmr_burst_data(b, full, cc, DMR_DT_VOICE_LC_HEADER, DMR_SYNC_MS_DATA);
+    for (int i = 0; i < TX_HEADERS; i++) {
+        put_burst(b);
+    }
+    bool keyed = afrx_fifo_key(dmr_soft_tx_low_power != 0);
+    if (keyed && dmr_soft_tx_gate) {
+        radio_phy_tx_gate(true); // the PA on for our timeslot only
+    }
+    int16_t pcm[160];
+    int halves = 0, nf = 0, pos = 0;
+    bool ending = false;
+    while (keyed) {
+        if (!afrx_ptt_held()) {
+            ending = true;
+        }
+        if (ending && (nf == 0) && (pos == 0)) {
+            break; // the superframe finished
+        }
+        if (ending) {
+            memcpy(ambe[nf], silence, DMR_AMBE_BYTES);
+        } else if (sound_mic_take(&pcm[80 * halves])) {
+            if (++halves < 2) {
+                continue;
+            }
+            halves = 0;
+            vocoderEncodeFrame(pcm, ambe[nf]);
+            dmr_soft_tx_stats[2]++;
+        } else {
+            vTaskDelay(pdMS_TO_TICKS(2));
+            continue;
+        }
+        if (++nf < 3) {
+            continue;
+        }
+        nf = 0;
+        if (pos == 0) {
+            dmr_burst_voice_sync(b, (const uint8_t(*)[DMR_AMBE_BYTES])ambe, DMR_SYNC_MS_VOICE);
+        } else {
+            dmr_burst_voice_emb(b, (const uint8_t(*)[DMR_AMBE_BYTES])ambe, cc, 0, lcss[pos - 1],
+                                (pos < 5) ? frags[pos - 1] : null_frag);
+        }
+        put_burst(b);
+        pos = (pos + 1) % 6;
+    }
+    if (keyed) {
+        dmr_full_lc_make(lc, DMR_MASK_TERMINATOR_LC, full);
+        dmr_burst_data(b, full, cc, DMR_DT_TERMINATOR_LC, DMR_SYNC_MS_DATA);
+        put_burst(b);
+    }
+    uint32_t underruns = afrx_fifo_finish(keyed);
+    radio_phy_tx_gate(false);
+    if (keyed) {
+        dmr_soft_tx_stats[3] = underruns;
+    }
+}
+
+// The PTT held: the recording and the playback are off (afrx.c). Direct mode: in software; repeater mode: the engine
+// transmits from its receive state from scratch, until the PTT is released and its transmission (a repeater's hang
+// time) is over
 static void transmit(void)
 {
+    if (dmr_soft_tx && currentChannelData && (currentChannelData->rx_freq == currentChannelData->tx_freq)) {
+        soft_transmit();
+        return;
+    }
     dmr_engine_resume();
     dmr_engine_transmit(true);
     while (afrx_ptt_held()) {

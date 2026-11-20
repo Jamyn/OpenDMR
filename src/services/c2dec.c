@@ -71,6 +71,13 @@ static uint32_t prof_t;
 
 #define sintab c2_sintab
 
+#ifndef C2DEC_BASS_BOOST
+#define C2DEC_BASS_BOOST 0
+#endif
+// the reference decoder's +3 dB under 1 kHz (codec2-3200.md 3.3); 0: the +3 dB at all frequencies, as loud and flat
+// (the reference's is 2.5 - 4.5 dB down at 1 - 3.5 kHz against the speech, AMBE+2's 0 - 2: "muddy", 2026-11-20)
+volatile uint32_t c2dec_bass_boost = C2DEC_BASS_BOOST;
+
 const int16_t c2_sintab[1024] = { // sin, Q15, 1024 a turn (also c2enc.c)
          0,    201,    402,    603,    804,   1005,   1206,   1407,   1608,   1809,   2009,   2210,   2410,   2611,   2811,   3012,
       3212,   3412,   3612,   3811,   4011,   4210,   4410,   4609,   4808,   5007,   5205,   5404,   5602,   5800,   5998,   6195,
@@ -452,7 +459,7 @@ static void subframe(c2dec_t *d, const c2dec_model_t *mdl, int16_t *pcm)
     }
     int32_t gain = log2_add(log2_sum(pre, 0, BINS), L2_1E4) - log2_add(log2_sum(d->pw, 0, BINS), L2_1E4) + mdl->e;
     for (unsigned k = 0; k < BINS; k++) {
-        d->pw[k] += gain + ((k < BINS / 4) ? L2_BASS : 0);
+        d->pw[k] += gain + (((k < BINS / 4) || !c2dec_bass_boost) ? L2_BASS : 0);
     }
 
     PROF(1); // the spectrum

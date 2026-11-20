@@ -35,9 +35,12 @@
  * Hunting: every third of a sample a start is tried: the 8 symbols of the LSF or the stream sync burst (all outer:
  * +-3) by their signs at the nearest samples first, then a least squares fit of gain and DC to the interpolated values
  * and its error; the best of the candidates close together, refined to a sixth of a sample, is the frame's start.
- * Locked: the frame's 192 symbols sliced with that gain and DC (thresholds 0, +-2 gain); the next sync looked for
+ * Locked: the frame's 192 symbols read; once all are in, scaled to levels with that gain and DC, the levels decision
+ * directed over the frame (fsk4_relevel(): the four levels' means, the thresholds between them) and the 3-tap
+ * equaliser (fsk4_eq3(), as DMR's), then out as soft symbols: on our recordings at ~-116 dBm the frames' bit errors a
+ * third fewer (12.5 -> 8.4 a frame), Codec 2 frames right 96.7 -> 98.4 % (2026-11-20). The next sync looked for
  * within 2 samples of where it should be (a sixth of a sample apart), the timing, gain and DC taken from it; up to
- * MAX_MISSES frames without it are sliced where they should be. An EoT sync ends the lock.
+ * MAX_MISSES frames without it are read where they should be. An EoT (at the levels followed) ends the lock.
  */
 
 #include <string.h>
@@ -57,6 +60,14 @@
 #define HUNT_ERR    48                  // the same hunting (0.19: noise found syncs at 0.5; a signal's are 0.03 - 0.15)
 #define REBASE_AT   (1U << 18)          // samples: the Q12 times kept within int32
 #define REBASE_BY   (1U << 17)          // a multiple of the ring
+
+#ifndef M17_DEMOD_DD
+#define M17_DEMOD_DD 1
+#endif
+#ifndef M17_DEMOD_EQ
+#define M17_DEMOD_EQ 1
+#endif
+volatile uint32_t m17_demod_dd = M17_DEMOD_DD, m17_demod_eq = M17_DEMOD_EQ;
 
 static const int8_t LSF[8] = {3, 3, 3, 3, -3, -3, 3, -3};    // 0x55F7; the stream sync 0xFF5D is its negative
 static const int8_t STREAM[8] = {-3, -3, -3, -3, 3, 3, -3, 3};
@@ -101,6 +112,21 @@ static bool fit(const m17_demod *d, int32_t t, const int8_t *p, int32_t *g, int3
     *dc = f.dc;
     *err = f.err;
     return true;
+}
+
+// the EOT at t against the levels followed (gain, DC): the mean squared error in levels^2, Q8
+static int32_t eot_err(const m17_demod *d, int32_t t)
+{
+    int32_t gs = d->g >> 8;
+    if (gs <= 0) {
+        return INT32_MAX;
+    }
+    int64_t e2 = 0;
+    for (int k = 0; k < 8; k++) {
+        int32_t e = (sample(d, sym_t(t, k)) - d->dc) * 256 / gs - EOT[k] * 256; // Q8 levels
+        e2 += (int64_t)e * e;
+    }
+    return (int32_t)((e2 / 8) >> 8);
 }
 
 // a sample as a soft symbol: (v - dc) / gain x M17_SOFT_ONE (gain Q8 a level), -127 .. 127
@@ -184,6 +210,26 @@ static void hunt(m17_demod *d)
     }
 }
 
+// a frame's symbols out, once all are in: scaled to levels, their levels decision directed, equalised (as set)
+static void frame_out(m17_demod *d)
+{
+    int32_t z[FRAME];
+    int32_t gs = (d->g >> 8) ? (d->g >> 8) : 1;
+    for (int k = 0; k < FRAME; k++) {
+        z[k] = (d->fv[k] - d->dc) * 256 / gs;
+    }
+    if (m17_demod_dd) {
+        fsk4_relevel(z, FRAME);
+    }
+    if (m17_demod_eq) {
+        fsk4_eq3(z, FRAME);
+    }
+    for (int k = 0; k < FRAME; k++) {
+        int32_t v = z[k] >> 4; // M17_SOFT_ONE (16) a level
+        d->cb(d->ctx, (v > 127) ? 127 : (v < -127) ? -127 : (int)v);
+    }
+}
+
 // locked: the symbols in; at a frame's end the next one's sync
 static void track(m17_demod *d)
 {
@@ -193,8 +239,10 @@ static void track(m17_demod *d)
             if (!available(d, t)) {
                 return;
             }
-            d->cb(d->ctx, slice(d, sample(d, t)));
-            d->i++;
+            d->fv[d->i++] = sample(d, t);
+            if (d->i == FRAME) {
+                frame_out(d);
+            }
             continue;
         }
         int32_t t1 = d->t0 + FRAME_T;
@@ -206,16 +254,24 @@ static void track(m17_demod *d)
         const int8_t *bp = NULL;
         for (int s = -TRACK; s <= TRACK; s++) {
             int32_t tt = t1 + s * FINE_STEP;
-            for (int q = 0; q < 2; q++) {
-                const int8_t *pp = q ? EOT : STREAM;
-                int32_t g, dc, err;
-                if (fit(d, tt, pp, &g, &dc, &err, ERR_MAX) && (err < best_err)) {
-                    best_err = err;
-                    bt = tt;
-                    bg = g;
-                    bdc = dc;
-                    bp = pp;
-                }
+            int32_t g, dc, err;
+            if (fit(d, tt, STREAM, &g, &dc, &err, ERR_MAX) && (err < best_err)) {
+                best_err = err;
+                bt = tt;
+                bg = g;
+                bdc = dc;
+                bp = STREAM;
+            }
+            // the EOT (7 of its 8 symbols +3: nearly a constant) at the levels followed, not fitted: with its own gain
+            // and DC free it fitted pieces of stream frames, the stream ended in the middle (a dozen times in 40 s at
+            // -116 dBm, 2026-11-20)
+            err = eot_err(d, tt);
+            if ((err < HUNT_ERR) && (err < best_err)) {
+                best_err = err;
+                bt = tt;
+                bg = d->g;
+                bdc = d->dc;
+                bp = EOT;
             }
         }
         if (bp) {

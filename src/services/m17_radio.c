@@ -120,6 +120,8 @@ uint32_t m17_raw_tap_n OVERLAY_BSS;
 uint32_t m17_raw_hold OVERLAY_BSS; // samples still to take (0: taking all the time; set once a call began)
 volatile uint32_t m17_raw_rearm; // over the cable: not 0, the recording tap taking again
 volatile uint32_t m17_raw_source; // over the cable: 1, the recording tap takes the first samples played in a call
+volatile uint32_t m17_raw_mic_ring; // over the cable: not 0, the recording tap keeps the last samples (the mic's
+                                    // transmitting; with m17_raw_source 1 the voice played receiving)
 
 
 /* transmit: the PTT (m17_radio_transmit()) */
@@ -276,8 +278,9 @@ static void on_dibit(void *ctx, int d)
 // the voice played (the recording tap: m17_raw_source 1, the call's first samples)
 static void play_tap(const int16_t *x, int n)
 {
-    for (int i = 0; (i < n) && (m17_raw_source == 1) && (m17_raw_tap_n < M17_RAW_TAP); i++) {
-        m17_raw_tap[m17_raw_tap_n++] = x[i];
+    for (int i = 0; (i < n) && (m17_raw_source == 1) && ((m17_raw_tap_n < M17_RAW_TAP) || m17_raw_mic_ring); i++) {
+        m17_raw_tap[m17_raw_tap_n % M17_RAW_TAP] = x[i]; // m17_raw_mic_ring: the call's last samples kept
+        m17_raw_tap_n++;
     }
 }
 
@@ -316,8 +319,9 @@ static void mic_filter(int16_t *x, mic_hp_t *hp)
         hp->x1 = x[0];
     }
     for (int i = 0; i < C2DEC_N; i++) {
-        if (m17_raw_tap_n < M17_RAW_TAP) {
-            m17_raw_tap[m17_raw_tap_n++] = x[i];
+        if ((m17_raw_tap_n < M17_RAW_TAP) || m17_raw_mic_ring) {
+            m17_raw_tap[m17_raw_tap_n % M17_RAW_TAP] = x[i]; // the mic as it comes (before the DC block)
+            m17_raw_tap_n++;
         }
         int32_t y = ((x[i] - hp->x1) << 8) + hp->y1 - (hp->y1 >> 6);
         hp->x1 = x[i];

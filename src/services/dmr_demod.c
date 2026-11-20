@@ -243,37 +243,6 @@ static void hunt(dmr_demod *d)
     }
 }
 
-// the levels of a burst decision directed (Q8 levels in and out): the four means, the thresholds between them mapped
-// to 0 and +-2 (512), piecewise linear
-static void relevel(int32_t *z, int n)
-{
-    int32_t sum[4] = {0}, cnt[4] = {0};
-    for (int k = 0; k < n; k++) {
-        int i = (z[k] >= 512) ? 3 : (z[k] >= 0) ? 2 : (z[k] >= -512) ? 1 : 0;
-        sum[i] += z[k];
-        cnt[i]++;
-    }
-    int32_t m[4];
-    for (int i = 0; i < 4; i++) {
-        m[i] = cnt[i] ? (sum[i] / cnt[i]) : (2 * i - 3) * 256;
-    }
-    int32_t tn = (m[0] + m[1]) / 2, t0 = (m[1] + m[2]) / 2, tp = (m[2] + m[3]) / 2;
-    int32_t a = (m[3] - tp > 1) ? (m[3] - tp) : 1, b = (tp - t0 > 1) ? (tp - t0) : 1;
-    int32_t c = (t0 - tn > 1) ? (t0 - tn) : 1, e = (tn - m[0] > 1) ? (tn - m[0]) : 1;
-    for (int k = 0; k < n; k++) {
-        int32_t v = z[k];
-        if (v >= tp) {
-            z[k] = 512 + (v - tp) * 256 / a;
-        } else if (v >= t0) {
-            z[k] = 512 * (v - t0) / b;
-        } else if (v >= tn) {
-            z[k] = -512 * (t0 - v) / c;
-        } else {
-            z[k] = -512 - (tn - v) * 256 / e;
-        }
-    }
-}
-
 static unsigned dibit_of(int32_t z)
 {
     return (z >= 512) ? 1 : (z >= 0) ? 0 : (z >= -512) ? 2 : 3;
@@ -321,16 +290,11 @@ static void burst(dmr_demod *d)
     for (int k = 0; k < CACH_SYMS + BURST_SYMS; k++) {
         z[k] = (fsk4_at(&d->x, sym_t(t0, k)) - d->dc) * 256 / gs;
     }
-    relevel(&z[CACH_SYMS], BURST_SYMS);
-    relevel(z, CACH_SYMS);
+    fsk4_relevel(&z[CACH_SYMS], BURST_SYMS);
+    fsk4_relevel(z, CACH_SYMS);
     // the equaliser (the burst's symbols but its first and last)
-    int32_t y[BURST_SYMS];
-    int32_t *zb = &z[CACH_SYMS];
-    y[0] = zb[0];
-    y[BURST_SYMS - 1] = zb[BURST_SYMS - 1];
-    for (int k = 1; k < BURST_SYMS - 1; k++) {
-        y[k] = (243 * zb[k] - 13 * (zb[k - 1] + zb[k + 1])) >> 8;
-    }
+    int32_t *y = &z[CACH_SYMS];
+    fsk4_eq3(y, BURST_SYMS);
     int64_t e2 = 0;
     for (int k = 0; k < BURST_SYMS; k++) {
         unsigned db = dibit_of(y[k]);

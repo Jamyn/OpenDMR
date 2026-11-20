@@ -121,6 +121,45 @@ bool fsk4_fit(const int32_t *v, const int8_t *p, int n, int32_t g_min, int32_t e
     return true;
 }
 
+void fsk4_relevel(int32_t *z, int n)
+{
+    int32_t sum[4] = {0}, cnt[4] = {0};
+    for (int k = 0; k < n; k++) {
+        int i = (z[k] >= 512) ? 3 : (z[k] >= 0) ? 2 : (z[k] >= -512) ? 1 : 0;
+        sum[i] += z[k];
+        cnt[i]++;
+    }
+    int32_t m[4];
+    for (int i = 0; i < 4; i++) {
+        m[i] = cnt[i] ? (sum[i] / cnt[i]) : (2 * i - 3) * 256;
+    }
+    int32_t tn = (m[0] + m[1]) / 2, t0 = (m[1] + m[2]) / 2, tp = (m[2] + m[3]) / 2;
+    int32_t a = (m[3] - tp > 1) ? (m[3] - tp) : 1, b = (tp - t0 > 1) ? (tp - t0) : 1;
+    int32_t c = (t0 - tn > 1) ? (t0 - tn) : 1, e = (tn - m[0] > 1) ? (tn - m[0]) : 1;
+    for (int k = 0; k < n; k++) {
+        int32_t v = z[k];
+        if (v >= tp) {
+            z[k] = 512 + (v - tp) * 256 / a;
+        } else if (v >= t0) {
+            z[k] = 512 * (v - t0) / b;
+        } else if (v >= tn) {
+            z[k] = -512 * (t0 - v) / c;
+        } else {
+            z[k] = -512 - (tn - v) * 256 / e;
+        }
+    }
+}
+
+void fsk4_eq3(int32_t *z, int n)
+{
+    int32_t prev = z[0];
+    for (int k = 1; k < n - 1; k++) {
+        int32_t cur = z[k];
+        z[k] = (243 * cur - 13 * (prev + z[k + 1])) >> 8;
+        prev = cur;
+    }
+}
+
 int fsk4_soft(int32_t v, int32_t g, int32_t dc, int one)
 {
     int32_t gs = g >> 8;

@@ -165,8 +165,7 @@ void lna(bool on, uint32_t frequency)
 // The speaker amplifier: on for the received audio or for a beep (sound.c), off when neither needs it. The audio
 // switch: high in FM (the speaker from the FD6818), low during a beep (the beeps come from the baseband's DAC; with the
 // switch high they don't reach the speaker)
-static volatile bool beep_path = false; // the audio switch to the baseband for a beep (or voice_play.c's voice)
-static uint8_t beep_path_users;         // its users now: the beeps (sound.c), the software receivers' voice
+static volatile bool beep_path = false; // the audio switch to the baseband for a beep
 static volatile bool audio_sw_fm = false;
 
 static void audio_switch(void)
@@ -560,17 +559,10 @@ void RAM_CODE radio_dmr_audio(bool on)
     irq_restore(psr);
 }
 
-// Counted: a beep ending while a software receiver's voice plays (both through the prompt path) left it switched off,
-// the rest of the call silent (#107, 2026-11-21)
 void radio_beep_path(bool on)
 {
     taskENTER_CRITICAL();
-    if (on) {
-        beep_path_users++;
-    } else if (beep_path_users) {
-        beep_path_users--;
-    }
-    beep_path = (beep_path_users != 0);
+    beep_path = on;
     audio_switch();
     taskEXIT_CRITICAL();
 }

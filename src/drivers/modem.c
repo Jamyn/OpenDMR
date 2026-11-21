@@ -217,15 +217,21 @@ void RAM_CODE modem_fm_audio(bool on)
 #define SOUND_FIFO ((volatile uint8_t *)0x16000980)
 
 static bool fm_audio_before_beep = false;
+static uint8_t beep_users; // modem_beep(): its users now (sound.c's beeps, voice_play.c's voice)
 
+// Counted (as radio_beep_path()): on for the first user, off after the last
 void modem_beep(bool on)
 {
+    uint32_t psr = irq_save();
     if (on) {
-        fm_audio_before_beep = ((AUDIO_CONTROL & BITSET(6)) != 0);
-        AUDIO_CONTROL = (AUDIO_CONTROL & ~BITSET(6)) | BITSET(7);
-    } else {
+        if (beep_users++ == 0) {
+            fm_audio_before_beep = ((AUDIO_CONTROL & BITSET(6)) != 0);
+            AUDIO_CONTROL = (AUDIO_CONTROL & ~BITSET(6)) | BITSET(7);
+        }
+    } else if (beep_users && (--beep_users == 0)) {
         AUDIO_CONTROL = (AUDIO_CONTROL & ~BITSET(7)) | (fm_audio_before_beep ? BITSET(6) : 0);
     }
+    irq_restore(psr);
 }
 
 bool modem_beep_fifo_full(void)

@@ -46,6 +46,7 @@
 #include "battery.h"
 #include "custom_data.h"
 #include "sound.h"
+#include "voice_play.h"
 
 #define SOUND_TASK_PRIORITY 3
 #define AMP_START_MS        75 // DELAYED_BEEP_DURATION_MS: the amplifier needs this before the first note
@@ -253,12 +254,15 @@ static volatile bool playing = false;
 static bool note(int32_t hz, int32_t hz2, uint32_t ms, int32_t *index, int32_t *index2, int shift)
 {
     uint8_t block[MODEM_BEEP_BLOCK];
+    int16_t x[MODEM_BEEP_BLOCK / 2];
 
     for (uint32_t t = 0; t < ms; t++) {
         if (stop || next) {
             return false;
         }
-        if (!modem_beep_fifo_full()) {
+        // a software receiver's voice playing (voice_play.c): the block added to it, else into the FIFO
+        bool mixing = voice_play_active();
+        if (mixing ? voice_play_mix_free() : !modem_beep_fifo_full()) {
             for (int i = 0; i < (MODEM_BEEP_BLOCK / 2); i++) {
                 int16_t sample = (hz != 0) ? (int16_t)(sine[*index] >> shift) : 0; // a pause: silence, not a level
 
@@ -270,6 +274,7 @@ static bool note(int32_t hz, int32_t hz2, uint32_t ms, int32_t *index, int32_t *
                     }
                 }
 
+                x[i] = sample;
                 block[2 * i] = (uint8_t)sample; // low byte first (the main firmware's comments say otherwise)
                 block[(2 * i) + 1] = (uint8_t)((uint16_t)sample >> 8);
                 if (hz != 0) {
@@ -279,7 +284,9 @@ static bool note(int32_t hz, int32_t hz2, uint32_t ms, int32_t *index, int32_t *
                     }
                 }
             }
-            modem_beep_write(block);
+            if (!mixing || !voice_play_mix(x)) {
+                modem_beep_write(block);
+            }
         }
         vTaskDelay(1);
     }
@@ -329,7 +336,7 @@ static void sound_task(void *arg)
         if (!amp_on) {
             radio_beep_path(true);
             modem_beep(true);
-            for (int ms = 0; ms < PATH_SETTLE_MS; ms++) {
+            for (int ms = 0; (ms < PATH_SETTLE_MS) && !voice_play_active(); ms++) { // the voice's path is settled
                 if (!modem_beep_fifo_full()) {
                     static const uint8_t zero[MODEM_BEEP_BLOCK];
                     modem_beep_write(zero);
@@ -337,7 +344,9 @@ static void sound_task(void *arg)
                 vTaskDelay(1);
             }
             radio_beep_amp(true);
-            vTaskDelay(pdMS_TO_TICKS(AMP_START_MS));
+            if (!voice_play_active()) { // else the amplifier is on already, for the voice
+                vTaskDelay(pdMS_TO_TICKS(AMP_START_MS));
+            }
             amp_on = true;
         }
         for (int i = 0; (melody[i] >= 0) && note(melody[i], ((melody[i] != 0) ? hz2 : 0), (uint32_t)melody[i + 1], &index, &index2, shift); i += 2) {

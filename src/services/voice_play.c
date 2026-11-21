@@ -106,11 +106,52 @@ static bool waited(uint32_t ms)
     return (xTaskGetTickCount() - since) >= pdMS_TO_TICKS(ms);
 }
 
+/* A beep while this plays (sound.c): written into the FIFO on its own between the voice's blocks it broke up both
+   (#107: the key beeps while a DMR call was received, 2026-11-21); its blocks come through the mix slot instead, added
+   to the next one written here */
+static int16_t mix[MODEM_BEEP_BLOCK / 2];
+static volatile bool mix_full;
+
+// a block of samples (or silence: NULL) into the FIFO, a beep's block added
+static void write_block(const int16_t *x)
+{
+    uint8_t block[MODEM_BEEP_BLOCK];
+    bool add = mix_full;
+    for (int i = 0; i < (MODEM_BEEP_BLOCK / 2); i++) {
+        int32_t v = (x ? x[i] : 0) + (add ? mix[i] : 0);
+        int16_t s = (int16_t)((v > 32767) ? 32767 : (v < -32768) ? -32768 : v);
+        block[2 * i] = (uint8_t)s;
+        block[2 * i + 1] = (uint8_t)((uint16_t)s >> 8);
+    }
+    mix_full = false;
+    modem_beep_write(block);
+}
+
+bool voice_play_active(void)
+{
+    return enabled && ((state == PATH) || (state == AMP) || (state == PLAY));
+}
+
+bool voice_play_mix(const int16_t x[MODEM_BEEP_BLOCK / 2])
+{
+    if (mix_full || !voice_play_active()) {
+        return false;
+    }
+    memcpy(mix, x, sizeof(mix));
+    mix_full = true;
+    return true;
+}
+
+bool voice_play_mix_free(void)
+{
+    return !mix_full;
+}
+
 static void silence(uint8_t *block)
 {
+    (void)block;
     if (!modem_beep_fifo_full()) {
-        memset(block, 0, MODEM_BEEP_BLOCK);
-        modem_beep_write(block);
+        write_block(NULL);
     }
 }
 
@@ -186,8 +227,7 @@ static void feed_task(void *arg)
                         p25_ev_log(53, (uint16_t)pcm_out); // the delay log (p25_radio.c): out of voice (arg: frames
                     }                                      // played so far)
                     count(cfg.underruns);
-                    memset(block, 0, sizeof(block));
-                    modem_beep_write(block);
+                    write_block(NULL);
                 }
             } else {
                 if (first_block) {
@@ -196,11 +236,7 @@ static void feed_task(void *arg)
                 }
                 in_underrun = false;
                 const int16_t *frame = &cfg.frames[pcm_out % cfg.count][pcm_pos];
-                for (int i = 0; i < (MODEM_BEEP_BLOCK / 2); i++) {
-                    block[2 * i] = (uint8_t)frame[i];
-                    block[2 * i + 1] = (uint8_t)((uint16_t)frame[i] >> 8);
-                }
-                modem_beep_write(block);
+                write_block(frame);
                 if (cfg.tap) {
                     cfg.tap(frame, MODEM_BEEP_BLOCK / 2);
                 }

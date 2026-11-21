@@ -61,5 +61,10 @@ int16_t *voice_play_frame(void);
 void voice_play_put(void);
 // The call over: what is queued played out, then the speaker off
 void voice_play_end(void);
+// A beep while the voice plays (sound.c): its next 16 samples added to the voice's next block, false: the slot still
+// full or the voice not playing (the beep then goes into the FIFO itself)
+bool voice_play_active(void);
+bool voice_play_mix(const int16_t x[16]);
+bool voice_play_mix_free(void);
 
 #endif

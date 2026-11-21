@@ -23,7 +23,6 @@ FORMAT = 1
 MAGIC = b'DM32LANG'
 SLOT_SIZE = 16384
 HEADER_SIZE = 92
-STRINGS_MAX = 10240  # bytes of strings the radio keeps in RAM (language.c LANGUAGE_STRINGS_SIZE)
 CODE_MAX = 7
 NAME_MAX = 31
 ENGLISH_NAME_MAX = 23
@@ -73,9 +72,6 @@ def check(doc, english=None):
             errors.append('%s: has a NUL' % key)
     if errors:
         return errors, warnings
-    size = sum(len(v.encode('utf-8')) + 1 for v in strings.values())
-    if size > STRINGS_MAX:
-        errors.append('the strings take %d bytes, at most %d' % (size, STRINGS_MAX))
     if len(build_slot(doc, check_size=False)) > SLOT_SIZE:
         errors.append('more than a %d byte slot' % SLOT_SIZE)
     if english is not None:

@@ -44,6 +44,8 @@ typedef void (*p25_demod_cb)(void *ctx, int dibit);
 
 // Times in samples Q12
 typedef struct {
+    fsk4_fir rrc;
+    int32_t hist[FSK4_RRC_TAPS];
     int32_t buf[P25_DEMOD_RING];
     fsk4_ring x;
     uint32_t signs[P25_DEMOD_RING / 32]; // each sample above dc_slow or not (bit n % RING): hunting's first look
@@ -55,9 +57,11 @@ typedef struct {
     fsk4_fit_t cand_fit;
     bool locked;
     int32_t t;                 // locked: the last sync's start (symbol 0)
-    int k;                     // locked: the next symbol, counted from t
+    int k;                     // locked: the next symbol read, counted from t (the one out is k - 2: the equaliser)
     int sign;                  // the polarity: +1, or -1 (the levels turned over)
     int32_t g, dc;             // the levels (fsk4_fit())
+    int32_t z1, z2;            // symbols k - 1 and k - 2 (Q8 levels, releveled)
+    int32_t m[4];              // the four levels' running means after g and dc (Q8: -3 .. +3 is -768 .. 768)
     int since_sync;            // symbols out since the last sync
     uint64_t last;             // the last 32 dibits out (2 bits each, the newest lowest)
     p25_demod_cb cb;

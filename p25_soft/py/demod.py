@@ -99,13 +99,18 @@ def main():
     ap.add_argument('--filter', default='none')
     ap.add_argument('--relevel', action='store_true')
     ap.add_argument('--eq', type=float, default=0.0, help='3-tap equaliser side tap (e.g. -0.05)')
+    ap.add_argument('--alpha', type=float, default=0.2)
+    ap.add_argument('--span', type=int, default=6)
     ap.add_argument('-v', action='store_true')
     a = ap.parse_args()
     base = os.path.join(HERE, '..', 'data', a.name)
     meta = json.load(open(base + '.json'))
     x = np.fromfile(base + '.raw', '<i2').astype(float)
+    if a.filter == 'iad':  # integrate and dump over one symbol (TIA-102.BAAA receive filter)
+        h = np.array([1 / 3, 1, 1 / 3])  # 5/3 samples: the middle sample whole, a third of each neighbour
+        x = np.convolve(x, h / h.sum(), 'same')
     if a.filter == 'rrc':
-        x = np.convolve(x, rrc(), 'same')
+        x = np.convolve(x, rrc(a.alpha, a.span), 'same')
     sent = sent_stream(meta['fn0'], meta['src'], 60, meta['lead'], meta.get('tg', 1))
     # the sent stream's syncs: where each frame starts
     sp = [i for i in range(len(sent) - 24) if np.array_equal(sent[i:i + 24], SYNC_D)]

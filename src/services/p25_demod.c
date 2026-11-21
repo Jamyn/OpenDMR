@@ -30,12 +30,17 @@
  * OpenDMR, service: P25 Phase 1 C4FM demodulation (p25_demod.h), as worked out on the radio's recordings (p25_soft/py
  * demod.py: our transmitter's test frames, 0 symbols wrong of 6912 with a strong signal).
  *
- * - the samples as recorded (no filter), into fsk4.c's ring; a symbol every 5/3 samples, read by cubic interpolation.
+ * - the samples through DMR's receive filter (fsk4_rrc_4800, root raised cosine 0.2) into fsk4.c's ring; a symbol every
+ *   5/3 samples, read by cubic interpolation. (The standard's integrate and dump is worse here: the recording is
+ *   low-passed already.)
  * - hunting: every third of a sample, the frame sync's 24 symbols (0x5575F5FF77FF, both polarities) first by their signs
  *   at the nearest samples, then a least squares fit of gain and DC; the best of those close together, refined to a
  *   sixth of a sample, starts the time line at its first symbol.
- * - locked: each symbol from the time line, scaled by the gain and DC, decided, out. The last 24 dibits out the sync
- *   (2 wrong at most): it fitted again within a sample of where it is (the timing, gain and DC from it). No sync for
+ * - locked: each symbol from the time line, scaled by the gain and DC, through the four levels' running means (DMR's
+ *   relevel, symbol by symbol) and the 3-tap equaliser (one symbol late), decided, out: on weak recordings 1037 symbols
+ *   wrong of 35000 to 475 (p25_soft/py/check.py weak1 .. weak5). The last 24 dibits out the sync (2 wrong at most): it
+ *   fitted again within a sample of where it is (the timing, gain and DC from it; a sync still when the fit is not
+ *   good enough, the time line kept). No sync for
  *   LOST_SYMS: lost. The hunt goes on while locked once no sync came for HUNT_SYMS (another transmitter, its timing).
  */
 
@@ -58,6 +63,7 @@
 #define REBASE_AT  (1U << 18)        // samples: the Q12 times kept within int32
 #define REBASE_BY  (1U << 17)        // a multiple of the ring
 #define SYNC_WORD  0x5575F5FF77FFULL // 24 dibits, the first sent the highest
+#define LEVEL_RATE 5                 // the levels' running means: 1/32 of each symbol
 
 static int8_t pattern[24];       // the sync's levels
 static uint64_t sign_mask[3], sign_positive[3];
@@ -98,6 +104,10 @@ void p25_demod_init(p25_demod *d, p25_demod_cb cb, void *ctx)
 {
     make_pattern();
     memset(d, 0, sizeof(*d));
+    fsk4_fir_init(&d->rrc, fsk4_rrc_4800, d->hist, FSK4_RRC_TAPS, 12);
+    for (int i = 0; i < 4; i++) {
+        d->m[i] = (2 * i - 3) * 256;
+    }
     fsk4_ring_init(&d->x, d->buf, P25_DEMOD_RING);
     d->cb = cb;
     d->ctx = ctx;
@@ -134,25 +144,55 @@ static int32_t oldest_t(const p25_demod *d)
     return (d->x.n > P25_DEMOD_RING - 16) ? (int32_t)((d->x.n - P25_DEMOD_RING + 16) << Q) : 0;
 }
 
+// symbol k in levels Q8 (+3: 768) from the time line, gain and DC; then through the levels' running means (as
+// fsk4_relevel(), symbol by symbol: the FM's non-linearity and what the fit's DC missed), the means updated
+static int32_t symbol(p25_demod *d, int k)
+{
+    int32_t gs = (d->g >> 8) ? (d->g >> 8) : 1;
+    int32_t v = d->sign * (fsk4_at(&d->x, sym_t(d->t, k)) - d->dc) * 256 / gs;
+    int32_t *m = d->m;
+    int i = (v >= 512) ? 3 : (v >= 0) ? 2 : (v >= -512) ? 1 : 0;
+    m[i] += (v - m[i]) >> LEVEL_RATE;
+    int32_t tn = (m[0] + m[1]) / 2, t0 = (m[1] + m[2]) / 2, tp = (m[2] + m[3]) / 2;
+    if (v >= tp) {
+        return 512 + (v - tp) * 256 / ((m[3] - tp > 1) ? (m[3] - tp) : 1);
+    }
+    if (v >= t0) {
+        return 512 * (v - t0) / ((tp - t0 > 1) ? (tp - t0) : 1);
+    }
+    if (v >= tn) {
+        return -512 * (t0 - v) / ((t0 - tn > 1) ? (t0 - tn) : 1);
+    }
+    return -512 - (tn - v) * 256 / ((tn - m[0] > 1) ? (tn - m[0]) : 1);
+}
+
+// symbol out next: out (its neighbours read again, the equaliser's)
+static void restart(p25_demod *d, int out)
+{
+    d->z2 = symbol(d, out - 1);
+    d->z1 = symbol(d, out);
+    d->k = out + 1;
+}
+
 // a time line from a sync starting at t. Locked already: the dibits go on from where they are (none twice, none
 // skipped: the receiver needs them in a row), on the new line
 static void lock_at(p25_demod *d, int32_t t, int sign, const fsk4_fit_t *f)
 {
-    int k = 0;
+    int out = 0;
     if (d->locked) {
         d->relocks++;
-        int64_t ahead = (int64_t)t - sym_t(d->t, d->k); // the sync's start from the next symbol due, Q12
-        k = -(int)((ahead * FSK4_SPS_DEN + (ahead >= 0 ? FSK4_SPS_4800_NUM / 2 : -FSK4_SPS_4800_NUM / 2)) /
-                   FSK4_SPS_4800_NUM);
+        int64_t ahead = (int64_t)t - sym_t(d->t, d->k - 1); // the sync's start from the next symbol due out, Q12
+        out = -(int)((ahead * FSK4_SPS_DEN + (ahead >= 0 ? FSK4_SPS_4800_NUM / 2 : -FSK4_SPS_4800_NUM / 2)) /
+                     FSK4_SPS_4800_NUM);
     }
     d->locked = true;
     d->t = t;
-    d->k = k;
     d->sign = sign;
     d->g = f->g;
     d->dc = f->dc;
     d->since_sync = 0;
     d->syncs++;
+    restart(d, out);
 }
 
 // hunting (not locked, or locked without a sync for HUNT_SYMS): the candidates whose symbols are all in
@@ -206,22 +246,24 @@ static unsigned decide(int32_t z) // z: Q8 levels
 static void track(p25_demod *d)
 {
     while (d->locked && fsk4_have(&d->x, sym_t(d->t, d->k + 1) + TRACK * FINE_STEP)) {
-        int32_t gs = (d->g >> 8) ? (d->g >> 8) : 1;
-        int32_t z = d->sign * (fsk4_at(&d->x, sym_t(d->t, d->k)) - d->dc) * 256 / gs;
-        unsigned db = decide(z);
+        int32_t z0 = symbol(d, d->k);
+        unsigned db = decide((243 * d->z1 - 13 * (d->z2 + z0)) >> 8); // symbol k - 1, equalised (fsk4_eq3())
+        d->z2 = d->z1;
+        d->z1 = z0;
         d->k++;
         d->since_sync++;
         d->symbols++;
         d->last = (d->last << 2) | db;
         d->cb(d->ctx, (int)db);
-        // the sync just out: its place and the levels again from it
+        // the sync just out (its last symbol k - 2): its place and the levels again from it; the dibits right but the
+        // fit not good enough (weak): a sync still, the time line and levels kept
         uint64_t diff = (d->last ^ SYNC_WORD) & 0xFFFFFFFFFFFFULL;
         int wrong = 0;
         for (int i = 0; (i < 24) && (wrong <= SYNC_WRONG); i++) {
             wrong += ((diff >> (2 * i)) & 3) != 0;
         }
         if ((wrong <= SYNC_WRONG) && (d->since_sync >= 24)) {
-            int32_t due = sym_t(d->t, d->k - 24), best_t = 0, best_err = TRACK_ERR;
+            int32_t due = sym_t(d->t, d->k - 25), best_t = 0, best_err = TRACK_ERR;
             fsk4_fit_t best = {0, 0, 0};
             for (int s = -TRACK; s <= TRACK; s++) {
                 fsk4_fit_t f;
@@ -233,12 +275,12 @@ static void track(p25_demod *d)
             }
             if (best_err < TRACK_ERR) {
                 d->t = best_t;
-                d->k = 24;
                 d->g = best.g;
                 d->dc = best.dc;
-                d->since_sync = 0;
-                d->syncs++;
+                restart(d, 24);
             }
+            d->since_sync = 0;
+            d->syncs++;
         }
         if (d->since_sync >= LOST_SYMS) {
             d->locked = false;
@@ -252,7 +294,7 @@ static void track(p25_demod *d)
 void p25_demod_samples(p25_demod *d, const int16_t *x, int count)
 {
     for (int k = 0; k < count; k++) {
-        int32_t s = x[k];
+        int32_t s = fsk4_fir_step(&d->rrc, x[k]);
         uint32_t i = d->x.n & d->x.mask;
         if (s > (d->dc_slow >> 8)) {
             d->signs[i >> 5] |= 1U << (i & 31);

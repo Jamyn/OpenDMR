@@ -30,7 +30,10 @@ def check(name, verbose=False):
     got = np.fromfile(out, np.uint8)
     sent = sent_stream(meta['fn0'], meta['src'], 80, meta['lead'], meta.get('tg', 1))
     sp = [i for i in range(len(sent) - 24) if np.array_equal(sent[i:i + 24], SYNC_D)]
-    gp = [i for i in range(len(got) - 24) if np.array_equal(got[i:i + 24], SYNC_D)]
+    gp = []  # the frame syncs in the output, 3 dibits wrong at most (weak signals)
+    for i in range(len(got) - 24):
+        if np.sum(got[i:i + 24] != SYNC_D) <= 3 and not (gp and i - gp[-1] < 400):
+            gp.append(i)
     frames = sym = wrong = 0
     for j, g0 in enumerate(gp):
         n = (gp[j + 1] - g0) if j + 1 < len(gp) else min(864, len(got) - g0)

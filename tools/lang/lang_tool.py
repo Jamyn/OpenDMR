@@ -110,7 +110,10 @@ class Link:
         for divisor in SPEED_DIVISORS:
             self.p.reset_input_buffer()
             self.p.write(b'DS' + struct.pack('>H', divisor))
-            if self.p.read(3) != b'DS\x01':
+            self.p.timeout = 1.0  # a late 'D' 'S' would change the radio's speed behind our back
+            answer = self.p.read(3)
+            self.p.timeout = 0.2
+            if answer != b'DS\x01':
                 return 115200
             time.sleep(0.02)
             self.p.baudrate = UART_CLOCK // divisor

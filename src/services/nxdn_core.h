@@ -83,6 +83,7 @@ typedef struct {
     int32_t t0;                  // locked: the next frame's FSW start
     int32_t period;              // per symbol (10 / 3 samples nominal)
     int misses;                  // locked: frames in a row without their FSW
+    int unchecked;               //   ... with their FSW, but no CRC holding
     int polarity;                // +1 / -1
     nxdn_frame_cb cb;
     void *ctx;

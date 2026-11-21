@@ -55,8 +55,12 @@
 #define HUNT_THRESH   3482                   // 0.85 (Q12): the correlation to take an FSW while hunting
 #define TRACK_THRESH  2458                   // 0.60: ... and while locked (near where it is due)
 #define HUNT_APART    (3 * SPS_NOMINAL)      // candidates this far apart are different peaks
-#define HUNT_SPAN     (NXDN_FRAME_SYMS * SPS_NOMINAL) // looked at after the first over it, for the best
+#define HUNT_SPAN     (4 * SPS_NOMINAL) // looked at after the first over it, for its peak: then its frame tried at
+                                        // once (a whole frame looked at for the best, as before, cost the call's first
+                                        // frame now and then: frame_decode()'s CRC tells content that looks like an
+                                        // FSW, and the hunt goes on after it, 2026-11-20)
 #define MAX_MISSES    3      // frames in a row without their FSW: hunting again
+#define MAX_UNCHECKED 2      // frames in a row with their FSW but no CRC holding (frame_decode()): hunting again
 #define PAYLOAD       182
 #define LICH_SYMS     8
 #define SACCH_SYMS    30
@@ -379,7 +383,10 @@ static bool frame_decode(const nxdn_rx *r, int32_t t0, int polarity, int32_t c, 
         }
     }
     *out = f;
-    return f.lich_ok && (((rf != 1) && (rf != 2)) || f.sacch_ok);
+    // a frame: a traffic one whose SACCH or a FACCH1 CRC holds (the LICH's parity alone passes noise one time in two,
+    // and a control channel's had no check: idle noise taken for frames held the lock on it when a call began, its
+    // first frames then lost while the lock ran out, 2026-11-20)
+    return f.lich_ok && ((rf == 1) || (rf == 2)) && (f.sacch_ok || f.facch_ok);
 }
 
 static void deliver(nxdn_rx *r, const nxdn_frame_t *f)
@@ -425,9 +432,9 @@ static void process(nxdn_rx *r)
 
     for (;;) {
         if (r->state == 0) {
-            // hunting: every 1/3 sample, the best over a whole frame after the first over the threshold (a frame's
-            // content can look like an FSW: the test signal's last 10 symbols did, 10 symbols before the real one).
-            // It goes on from where it stopped when more samples come.
+            // hunting: every 1/3 sample, the best within HUNT_SPAN of the first over the threshold (a frame's content
+            // can look like an FSW: the test signal's last 10 symbols did, 10 symbols before the real one; its frame
+            // does not decode, and the hunt goes on). It goes on from where it stopped when more samples come.
             if (r->hunt_t < oldest) {
                 r->hunt_t = oldest;
                 r->hunt_first = -1;
@@ -509,6 +516,7 @@ static void process(nxdn_rx *r)
             r->polarity = (r->cand_c[pick] > 0) ? 1 : -1;
             r->t0 = r->cand_t[pick];
             r->state = 1;
+            r->unchecked = 0;
             deliver(r, &f);
             r->t0 += NXDN_FRAME_SYMS * r->period;
             continue;
@@ -544,7 +552,16 @@ static void process(nxdn_rx *r)
             r->t0 = bt;
             r->misses = 0;
             nxdn_frame_t f;
-            frame_decode(r, r->t0, r->polarity, bc, &f);
+            if (frame_decode(r, r->t0, r->polarity, bc, &f)) {
+                r->unchecked = 0;
+            } else if (++r->unchecked >= MAX_UNCHECKED) { // an FSW, nothing in the frame checked: noise
+                r->state = 0;
+                r->hunt_t = r->t0 + NXDN_FRAME_SYMS * r->period;
+                r->hunt_first = -1;
+                r->lost_sync++;
+                deliver(r, &f);
+                continue;
+            }
             deliver(r, &f);
         } else if (++r->misses >= MAX_MISSES) {
             r->state = 0;

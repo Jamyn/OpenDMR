@@ -240,3 +240,8 @@ python nxdn/py/frames.py "nxdn/data/iq/NXDN96 IQ.wav"
   要改 VFO 本身（`vfos[0]` 偏移 44 是 RAN）或 `settings.override_tg`（偏移 16，个呼在最高字节放 0x03），再按个键让界面刷新。
 - 还要做：NXDN ID 到呼号的数据库；扫描时不同 RAN 的信号也会停（有信号的标记在 RAN 检查之前）；`nxdn_tx_low_power`
   只是调试变量。
+
+## 延迟（2026-11-20）
+
+通话一开始就打开功放、录音每 16 ms 读一次、接收时 VCALL 帧前后的锁定和超时修正，按键到出声从 440–614 ms 降到
+约 290–300 ms。见 [docs/voice-delay.md](../docs/voice-delay.md)。

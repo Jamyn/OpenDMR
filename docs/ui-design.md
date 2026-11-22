@@ -197,7 +197,7 @@ y=320 └───────────────────────�
 | 电台信息 | ![](manual/zh/radio-info.png) | 电池、时间、日期、位置、电池曲线；时间/日期/位置用数字输入控件 |
 | 信号强度 | ![](manual/zh/rssi.png) | dBm 大字、S 表、频率和模式 |
 | 最近通话 | ![](manual/zh/last-heard.png) | 两行一项：ID/呼号、通话组和时隙、多久以前 |
-| 数字输入 | ![](manual/zh/number-entry.png) | `#` 在 TG / PC / 联系人 / 本机 ID 之间切换；本机 ID 按 OK 永久保存 |
+| 数字输入 | ![](manual/zh/number-entry.png) | `#` 在 TG / PC / 全呼 / 联系人之间切换 |
 | 固件信息 | ![](manual/zh/firmware-info.png) | 版本、编译时间、芯片、机型、致谢 |
 | GPS | ![](manual/zh/gps.png) | 天空图（GPS 蓝、北斗黄，收到的实心）、经纬度、卫星数、海拔、UTC 和本地时间；OK 开关 GPS |
 | 业余卫星 | ![](manual/zh/satellite.png) | 没设位置时先输入位置；之后是过境列表、过境详情（极坐标轨迹、多普勒修正频率） |

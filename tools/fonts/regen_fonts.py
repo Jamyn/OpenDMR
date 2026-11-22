@@ -22,7 +22,7 @@ FONTS = [
     ('font_roboto20', 20, 'Regular', ['--latin-ext']),
     ('font_roboto22', 22, 'Regular', ['--latin-ext']),
     ('font_roboto32_bold', 32, 'Bold', ['--latin-ext']),
-    ('font_roboto44_bold', 44, 'Bold', ['--latin1']),
+    ('font_roboto44_bold', 44, 'Bold', []),  # ASCII only: times, frequencies, callsigns (qso_panel.c: 32 px otherwise)
     ('font_roboto42_bold', 42, 'Bold', ['--chars', '0123456789. ']),
 ]
 

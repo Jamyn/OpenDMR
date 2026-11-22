@@ -546,8 +546,7 @@ See [12](#12-lock-quick-keys-key-settings).
 ### Language
 
 The menu key or ◀ ▶ on Options → Language switches the language: English (built in) and the languages written to
-the radio with the OpenDMR CPS's Languages page (the zip has Chinese and Spanish, see section 5 of the installation
-guide). The row is called Language in every language, so it can be found from one you cannot read. When a
+the radio with the OpenDMR CPS's Languages page (from [opendmr-languages](https://github.com/va3bpf/opendmr-languages), see section 5 of the installation guide). The row is called Language in every language, so it can be found from one you cannot read. When a
 language's font is not in the radio, its text shows as "??" and the menu gives its English name.
 
 ### Calibration

@@ -30,7 +30,6 @@ DIST = os.path.join(ROOT, 'dist')
 DEFAULT_REPO = 'va3bpf/OpenDMR'
 CPS_REPO = 'va3bpf/opendmr-cps'
 CPS_FILE = 'opendmr-cps.html'
-FONT = 'tools/fonts/build/cjk.bin'
 TIMEZONE_DATA = 'src/services/timezone-data'
 
 # In the zip -> from the repository. Keep in step with the table of docs/installation.md
@@ -38,9 +37,6 @@ FILES = {
     'opendmr.bin': 'src/build/opendmr.bin',
     'opendmr_BFUV32.bin': 'src/build/opendmr_BFUV32.bin',
     # The languages folder: the CPS's Languages page writes these to the radio (docs/i18n.md), the user choosing it
-    'languages/zh.json': 'tools/text/languages/zh.json',
-    'languages/es.json': 'tools/text/languages/es.json',
-    'languages/cjk.bin': FONT,
     'timezone-data/tzdb.bin': TIMEZONE_DATA + '/tzdb.bin',
     'timezone-data/README.md': TIMEZONE_DATA + '/README.md',
     'tools/backup/dm32_dump.py': 'tools/backup/dm32_dump.py',
@@ -86,12 +82,6 @@ def build():
     if r.returncode != 0:
         sys.exit(r.stdout[-3000:] + r.stderr[-3000:] + '\nthe build failed')
     print(r.stdout.strip().splitlines()[-1])
-
-
-def font():
-    if not os.path.exists(os.path.join(ROOT, FONT)):
-        print('making the Chinese font file ...')
-        subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'fonts', 'mkfont_pack.py')], cwd=ROOT, check=True)
 
 
 def gh_path():
@@ -223,7 +213,6 @@ def main():
                                          git('rev-parse', '--short=7', 'HEAD'))
     if not args.no_build:
         build()
-    font()
     cps_path, cps_version = cps(args)
     assets = pack(version, cps_path, cps_version)
     if args.publish:

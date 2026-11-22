@@ -392,8 +392,8 @@ Aviso de fin de tiempo TOT, volumen de pitidos de teclado, pitidos de inicio/fin
 ### Idioma (Language)
 
 En Opciones → Language, pulsa la tecla de menú o ◀ ▶ para cambiar de idioma: **English** (incluido en el firmware) y los
-idiomas escritos en el radio desde la página Idiomas de OpenDMR CPS (el zip trae español y chino, ver la sección 5 de la
-guía de instalación). La fila se llama Language en todos los idiomas, para encontrarla aunque no entiendas el actual.
+idiomas escritos en el radio desde la página Idiomas de OpenDMR CPS (en [opendmr-languages](https://github.com/va3bpf/opendmr-languages), ver la sección 5 de la guía de
+instalación). La fila se llama Language en todos los idiomas, para encontrarla aunque no entiendas el actual.
 Si la fuente de un idioma no está en el radio, sus textos se ven como "??" y el menú muestra su nombre en inglés.
 
 ### Calibración

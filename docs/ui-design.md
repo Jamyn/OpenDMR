@@ -226,7 +226,8 @@ UI 任务 ui/ui.c                 阻塞在事件队列上；把事件交给界�
         │
         ├── 界面栈               ui_push() / ui_pop() / ui_replace() / ui_home()，最深 8 层
         ├── 列表界面 ui/list.c   菜单和设置：由 ui_list_t 表描述
-        ├── 覆盖层               提示（toast）、消息框：画在界面之上
+        ├── 提示气泡 ui/notice.c ui_notify()：任何任务都能发，画在栈顶界面之上，到时或按任意键关闭
+        ├── 消息框 ui/message_box.c 要回答的问题、操作结果：作为一个界面压栈
         └── 文字 ui/text.c       字符串 ID → 当前语言的文字（中文、英文）
 
 数据变化（电量、时间的分钟、信号……）由各服务发 UI_EVENT_DATA 事件，界面据此决定要不要重画。
@@ -243,6 +244,7 @@ typedef enum {
     UI_EVENT_ROTARY,      // steps: 正数顺时针
     UI_EVENT_DATA,        // what: 哪类数据变了（电量、时间、信号、接收状态……）
     UI_EVENT_TIMER,       // 界面自己申请的定时器到了
+    UI_EVENT_NOTICE,      // ui_notify() 的提示气泡：UI 任务自己处理，界面收不到
 } ui_event_type_t;
 
 typedef struct {

@@ -565,6 +565,11 @@ Read only: the factory calibration table (oscillator tune, receive level, power 
 - Location: the fixed location of the channel's APRS configuration, or the GPS;
 - Interval, Decay, Compress; for Smart: Slow / Fast Rate, Low / Hi Speed, Turn Angle / Slope / Time.
 - SK1 + 1 switches APRS on / off at any time. Beacons are sent as AFSK (1200 baud) in FM.
+- A bubble in the middle of the screen, over any screen, shows the beacon: a manual one (SK1 + 3, the menu's Send
+  now), the PTT mode's and the satellite screen's show "APRS Sending..." and then "APRS Sent", or "Channel busy, not
+  sent", "Not sent", "No fix"; Auto and Smart beacons show only "APRS Sent" (a busy channel is tried again and again,
+  not shown each time). The bubble closes after a few seconds or at any key (that press only closes it; the PTT
+  still transmits).
 - The APRS configuration's "Beacon Tx frequency" (in the CPS) is the frequency the beacon is sent on, in every mode but
   PTT (the beacon goes out on the channel after each transmission). A channel opts in by naming a configuration: one
   without it never beacons, and a receive-only channel never beacons either. With no beacon frequency, an FM channel

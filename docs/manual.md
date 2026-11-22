@@ -542,7 +542,7 @@ py tools\ids\id_db.py build                  （下载 RadioID 名单并打包�
 py tools\ids\id_db.py write COM6             （电台开机，插好编程线）
 ```
 
-`build --countries "Canada,United States"` 只保留这些国家（更小，写得更快）。第一次写入约 3 分钟（编程线最高 750 000 波特率）；以后写新名单只发送变化的部分。有这个数据库时就不用 CPS 写的那个；RadioID 的名单里没有姓。
+`build --countries "Canada,United States"` 只保留这些国家（更小，写得更快）。第一次写入约 3 分钟（编程线最高 750 000 波特率；数据线不稳定时加 `--baud 250000` 之类指定速率）；以后写新名单只发送变化的部分。有这个数据库时就不用 CPS 写的那个；RadioID 的名单里没有姓。
 
 ### DMR 热点（MMDVM）
 

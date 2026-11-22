@@ -338,9 +338,9 @@ Two paths watched at once, each **any channel or VFO A / B** (both may be the sa
 
 <img src="manual/en/number-entry.png" alt="Number entry">
 
-- **#** on a main screen. **#** cycles TG → PC → contact → own ID; ▲ ▼ add / subtract 1.
-- The menu key takes it: a TG or PC replaces the channel's contact for now; a contact also brings its timeslot;
-  **the own ID is written into the codeplug** (kept after power off).
+- **#** on a main screen. **#** cycles TG → PC → All Call → contact; ▲ ▼ add / subtract 1.
+- The menu key takes it: a TG, PC or the All Call (16777215, nothing to type) replaces the channel's contact for
+  now; a contact also brings its timeslot. Your own DMR ID is set in Settings (User DMR ID), not here.
 - In FM # is the DTMF entry: digits, * and # type the code, ◀ deletes, the menu key sends it.
 
 ### Contact list (SK2 + #)

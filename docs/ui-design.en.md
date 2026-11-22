@@ -228,7 +228,7 @@ Dual watch, add to dual watch, channel ↔ VFO, filters, DMR filter; in the VFO 
 | Radio info | ![](manual/en/radio-info.png) | Battery, time, date, location, battery graph; time/date/location with the digit entry widget |
 | RSSI | ![](manual/en/rssi.png) | dBm (large), S meter, frequency and mode |
 | Last heard | ![](manual/en/last-heard.png) | Two lines per call: ID/callsign, talk group and slot, how long ago |
-| Number entry | ![](manual/en/number-entry.png) | `#` cycles TG / PC / contact / own ID; OK saves the own ID for good |
+| Number entry | ![](manual/en/number-entry.png) | `#` cycles TG / PC / All Call / contact |
 | Firmware info | ![](manual/en/firmware-info.png) | Version, build time, chip, model, credits |
 | GPS | ![](manual/en/gps.png) | Sky plot (GPS blue, BeiDou amber, filled when received), position, satellites, height, UTC and local time; OK switches the GPS |
 | Satellites | ![](manual/en/satellite.png) | Asks for the location first when none is set; then the passes list and the pass (polar track, Doppler corrected frequencies) |

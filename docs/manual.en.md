@@ -668,7 +668,7 @@ py tools\ids\id_db.py write COM6             (the radio on, the cable in)
 ```
 
 `build --countries "Canada,United States"` keeps only those countries (smaller, written faster). The first write takes
-about 3 minutes (the cable goes up to 750 000 baud); writing a newer list again only sends the parts that changed.
+about 3 minutes (the cable goes up to 750 000 baud; `--baud 250000` or so for a cable that isn't reliable); writing a newer list again only sends the parts that changed.
 While it is there it is used instead of the CPS's database; RadioID's list has no surnames.
 
 ### DMR hotspot (MMDVM)

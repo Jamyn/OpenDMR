@@ -28,10 +28,10 @@
 
 /*
  * OpenDMR, UI: the notice bubble (ui_notify() in ui.h, shown by the UI task over the screen on top), as the toasts of
- * the phone apps: a solid card with round corners in the middle of the screen, a large icon of its kind in the
- * kind's colour, the text centred under it. A light theme: the card dark (THEME_COLOUR_TEXT_DIM) with the
- * background's colour as its text and a shadow under it; a dark theme: the card a step lighter than the background
- * (THEME_COLOUR_OFF) with the text colour, no shadow.
+ * the phone apps: a solid card with round corners in the middle of the screen, a large icon of its kind, the text
+ * centred under it. The card is the colour of the menus' selected row (THEME_COLOUR_ACCENT), the icon and the text
+ * the selected row's text colour (THEME_COLOUR_ON_ACCENT): the kind's own colours (transmit, receive, warning) are
+ * lost on the accent of several themes, so the icon's shape tells the kind. A shadow under it on a light theme.
  */
 
 #include <stddef.h>
@@ -125,12 +125,10 @@ static void icon(ui_notice_kind_t kind, int32_t cx, int32_t cy, theme_colour_t c
 
 void ui_notice_draw(text_id_t line1, text_id_t line2, ui_notice_kind_t kind)
 {
-    static const theme_colour_t icon_colours[] = {THEME_COLOUR_TEXT, THEME_COLOUR_TX, THEME_COLOUR_RX,
-                                                  THEME_COLOUR_WARNING};
     const font_t *font = &font_roboto20;
     bool dark = theme_dark();
-    theme_colour_t card = dark ? THEME_COLOUR_OFF : THEME_COLOUR_TEXT_DIM;
-    theme_colour_t ink = dark ? THEME_COLOUR_TEXT : THEME_COLOUR_BACKGROUND;
+    theme_colour_t card = THEME_COLOUR_ACCENT;
+    theme_colour_t ink = THEME_COLOUR_ON_ACCENT;
     const char *t1 = text(line1);
     const char *t2 = (line2 < TEXT_COUNT) ? text(line2) : NULL;
     char joined[TEXT_SIZE];
@@ -167,7 +165,7 @@ void ui_notice_draw(text_id_t line1, text_id_t line2, ui_notice_kind_t kind)
         round_rect(x + 1, y + SHADOW, w, h, RADIUS, THEME_COLOUR_OFF); // the shadow
     }
     round_rect(x, y, w, h, RADIUS, card);
-    icon(kind, x + (w / 2), y + PADDING_TOP + (ICON_H / 2), (kind == UI_NOTICE_INFO) ? ink : icon_colours[kind]);
+    icon(kind, x + (w / 2), y + PADDING_TOP + (ICON_H / 2), ink);
 
     int32_t ty = y + PADDING_TOP + ICON_H + ICON_GAP;
 

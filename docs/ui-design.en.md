@@ -243,10 +243,10 @@ Dual watch, add to dual watch, channel ↔ VFO, filters, DMR filter; in the VFO 
   every LCD transfer is heard as a tick in the FM audio.
 - **Notices** (`ui_notify()`, `src/ui/notice.c`, #105): a bubble over whatever screen is on top, for what the user
   should know at once (an APRS beacon going out and its result). Any task posts one through the event queue: two
-  texts, a kind (info, transmit, done, failed: its icon and colour) and how long it shows. The UI task draws it after
+  texts, a kind (info, transmit, done, failed: its icon) and how long it shows. The UI task draws it after
   the screen and closes it when its time is up or at the next key, knob step or PTT; that press only closes it (the
-  PTT still transmits). A solid card with round corners: dark with a shadow on a light theme, a step lighter than
-  the background on a dark one.
+  PTT still transmits). A solid card with round corners in the colour of the menus' selected row, the icon and the
+  text in the selected row's text colour, a shadow under it on a light theme.
 - **Menus and settings are tables** (`src/ui/list.c`, `ui_list_t`): label, icon, type (screen, submenu, bit, choice,
   number, custom), target. Left/right and the knob change values; the menu key opens screens and submenus only, and
   the bottom bar says `Select` only where it does (`item_selectable()`).

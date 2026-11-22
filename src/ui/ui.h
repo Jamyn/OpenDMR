@@ -145,10 +145,10 @@ void ui_timer_start(uint32_t ms); // one UI_EVENT_TIMER for the screen on top, a
 // press only closes it (the PTT still transmits). A new one replaces the one showing. From any task (it goes
 // through the event queue); line2 TEXT_COUNT: one line.
 typedef enum {
-    UI_NOTICE_INFO,  // an i, in the text colour
-    UI_NOTICE_TX,    // an antenna, the transmit colour: something goes on the air
-    UI_NOTICE_OK,    // a tick, the receive colour: done
-    UI_NOTICE_ERROR, // a cross, the warning colour: did not happen
+    UI_NOTICE_INFO,  // an i
+    UI_NOTICE_TX,    // an antenna: something goes on the air
+    UI_NOTICE_OK,    // a tick: done
+    UI_NOTICE_ERROR, // a cross: did not happen
 } ui_notice_kind_t;
 
 #define UI_NOTICE_MS_MAX 25500 // the longest (100 ms steps in the event)

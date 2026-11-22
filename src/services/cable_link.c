@@ -170,6 +170,7 @@ static uint32_t expected_length(uint32_t received)
             case 'q': return 2; // the state
             case 'a': return 6; // a test APRS beacon
             case 'd': return 5; // a test data burst
+            case 'n': return 9; // a notice
             default: break;
         }
     }

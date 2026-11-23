@@ -68,6 +68,10 @@ def git(*args):
     return subprocess.run(['git', *args], cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip()
 
 
+RADIO_PROGRAMS = [('tools/debug/updater/build.sh', 'tools/debug/updater/updater.bin'),
+                  ('tools/backup/dumper/build.sh', 'tools/backup/dumper/dumper.bin')]
+
+
 def build():
     tools = os.path.join(ROOT, 'toolchain', 'MinGW')
     env = dict(os.environ)
@@ -81,6 +85,16 @@ def build():
     if r.returncode != 0:
         sys.exit(r.stdout[-3000:] + r.stderr[-3000:] + '\nthe build failed')
     print(r.stdout.strip().splitlines()[-1])
+    # The radio-side programs (the CPS's Flasher reads them from the release folder): built again from their source,
+    # and the release stops if one differs from the one in git (its source changed, the .bin not rebuilt)
+    sh = shutil.which('sh', path=env['PATH'])
+    for script, binary in RADIO_PROGRAMS:
+        r = subprocess.run([sh, script], cwd=ROOT, env=env, capture_output=True, text=True)
+        if r.returncode != 0:
+            sys.exit(r.stdout[-2000:] + r.stderr[-2000:] + '\n%s failed' % script)
+        if git('status', '--porcelain', '--', binary):
+            sys.exit('%s rebuilt differs from the one in git: commit it, then make the release again' % binary)
+        print(r.stdout.strip().splitlines()[-1])
 
 
 def gh_path():

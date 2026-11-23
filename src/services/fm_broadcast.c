@@ -85,6 +85,7 @@
 
 static bool is_on = false;
 static bool seeking = false;
+static uint16_t seek_bits = 0; // CTRL_SEEK and its direction while seeking
 static bool muted = false;
 static uint16_t frequency = 999;
 
@@ -275,7 +276,7 @@ void fm_broadcast_mute(bool mute)
 {
     if (is_on && (mute != muted)) {
         muted = mute;
-        chip_write(REG_CTRL, ctrl() | (seeking ? CTRL_SEEK : 0));
+        chip_write(REG_CTRL, ctrl() | (seeking ? seek_bits : 0)); // a seek up goes on up
     }
 }
 
@@ -328,7 +329,8 @@ void fm_broadcast_tune(uint16_t to)
 
 void fm_broadcast_seek(bool up)
 {
-    chip_write(REG_CTRL, ctrl() | CTRL_SEEK | (up ? CTRL_SEEKUP : 0)); // the chip wraps at the band edges
+    seek_bits = CTRL_SEEK | (up ? CTRL_SEEKUP : 0);
+    chip_write(REG_CTRL, ctrl() | seek_bits); // the chip wraps at the band edges
     seeking = true;
     rds_clear();
 }

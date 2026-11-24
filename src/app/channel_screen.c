@@ -558,13 +558,14 @@ static void reply_to_call(void)
 static bool do_action(keymap_action_t action)
 {
     bool dmr = (channel.mode == CODEPLUG_MODE_DMR);
+    bool analog = codeplug_mode_is_analog(channel.mode); // as the VFO: P25, NXDN, M17 have TGs too, not DTMF
 
     switch (action) {
         case KEYMAP_NUMBER_ENTRY:
-            ui_push(&number_entry_screen, (dmr) ? NUMBER_ENTRY_TX_TARGET : NUMBER_ENTRY_DTMF);
+            ui_push(&number_entry_screen, analog ? NUMBER_ENTRY_DTMF : NUMBER_ENTRY_TX_TARGET);
             return false;
         case KEYMAP_CONTACT_LIST:
-            contacts_open_quick_list(!dmr);
+            contacts_open_quick_list(analog);
             return false;
         case KEYMAP_REVERSE_REPEATER:
             reversed = !reversed;
@@ -594,7 +595,7 @@ static bool do_action(keymap_action_t action)
         case KEYMAP_TG_OR_SQUELCH_DOWN: {
             int step = (action == KEYMAP_TG_OR_SQUELCH_UP) ? 1 : -1;
 
-            if (!dmr) {
+            if (analog) {
                 squelch_step(step);
             } else if (tx_target_step_group(&channel, step) == 0) {
                 ui_key_beep(SOUND_KEY_FIRST_ITEM);

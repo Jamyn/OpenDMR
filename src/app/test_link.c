@@ -46,6 +46,7 @@
 #include "codeplug.h"
 #include "codeplug_text.h"
 #include "radio.h"
+#include "tx_target.h"
 #include "radio_hooks.h"
 #include "settings.h"
 #include "scan.h"
@@ -198,8 +199,12 @@ static uint32_t state(char *text, uint32_t size)
         codeplug_channel_t r;
 
         if (radio_get_channel(&r)) {
-            put(&o, "use", "mode=%s ts=%d sql=%u power=%u bw=%s", codeplug_mode_name(r.mode), (r.flag2 & 0x40) ? 2 : 1,
-                (unsigned)r.sql, (unsigned)r.libre_dmr_power, (r.flag4 & 0x02) ? "25" : "12.5");
+            tx_target_t target;
+
+            tx_target_get(&r, &target);
+            put(&o, "use", "mode=%s ts=%d sql=%u power=%u bw=%s tg=%lu", codeplug_mode_name(r.mode),
+                (r.flag2 & 0x40) ? 2 : 1, (unsigned)r.sql, (unsigned)r.libre_dmr_power, (r.flag4 & 0x02) ? "25" : "12.5",
+                (unsigned long)target.id);
         }
     }
     put(&o, "receiving", "%d", radio_is_receiving() ? 1 : 0);

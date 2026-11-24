@@ -84,6 +84,8 @@
 #include "dmr_l2.h"
 #include "dmr_soft.h"
 #include "ambe.h"
+#include "dmr_data.h"
+#include "sms.h"
 
 #define PCM_FRAMES    16  // 320 ms of decoded voice
 #define PLAY_START    3   // frames queued before the playback starts (they come 3 at a time every 60 ms, with a
@@ -282,7 +284,8 @@ static void voice(const uint8_t b[DMR_BURST_BYTES])
 static void data_packet(int ts, data_rx_t *d)
 {
     int len = d->blocks * 12 - 4;          // user data and pad octets, then the CRC-32
-    int pad = ((d->head[0] & 0x10) ? 16 : 0) | (d->head[1] & 0x0F);
+    uint8_t dpf = d->head[0] & 0x0F;
+    int pad = (dpf == DMR_DPF_DEFINED) ? (d->head[9] / 8) : (((d->head[0] & 0x10) ? 16 : 0) | (d->head[1] & 0x0F));
     const uint8_t *c = &d->data[len];
     uint32_t got = (uint32_t)c[0] | ((uint32_t)c[1] << 8) | ((uint32_t)c[2] << 16) | ((uint32_t)c[3] << 24);
     bool ok = (dmr_crc32(d->data, len) == got) && (pad <= len);
@@ -302,6 +305,12 @@ static void data_packet(int ts, data_rx_t *d)
     e->length = (uint16_t)(ok ? (len - pad) : len);
     memcpy(e->data, d->data, (size_t)((e->length < (int)sizeof(e->data)) ? e->length : (int)sizeof(e->data)));
     dmr_soft_data_log_n++;
+    if (ok) { // to the text messages (sms.c: decoded and queued, stored later by the input task)
+        dmr_data_rx_t p = {.dpf = dpf, .sap = d->head[1] >> 4, .group = e->group, .dst = e->dst, .src = e->src,
+                           .data = d->data, .length = len - pad};
+        memcpy(p.head, d->head, sizeof(p.head));
+        sms_dmr_packet(ts, &p);
+    }
 }
 
 // a data burst of timeslot ts (its data type dt): a CSBK, a data header, a data block
@@ -335,9 +344,12 @@ static void data_burst(int ts, uint8_t dt, const dmr_burst_t *b)
             return;
         }
         dmr_soft_stats.data_headers++;
-        int blocks = info[8] & 0x7F;
-        if (((info[0] & 0x0F) != 0x02) || (blocks == 0) || (blocks > DATA_RX_BLOCKS)) {
-            dmr_soft_stats.data_other++; // not an unconfirmed packet we take
+        uint8_t dpf = info[0] & 0x0F;
+        int blocks = (dpf == DMR_DPF_UNCONFIRMED) ? (info[8] & 0x7F)
+                     : (dpf == DMR_DPF_DEFINED)   ? ((((info[0] >> 4) & 0x03) << 4) | (info[1] & 0x0F)) // appended
+                                                  : 0;
+        if ((blocks == 0) || (blocks > DATA_RX_BLOCKS)) {
+            dmr_soft_stats.data_other++; // not an unconfirmed or defined short data packet (yet)
             return;
         }
         memcpy(d->head, info, sizeof(d->head));
@@ -872,31 +884,37 @@ static void transmit(void)
 
 static const afrx_ops_t ops;
 
-static struct {
-    uint8_t types[DMR_DATA_BURSTS_MAX], lengths[DMR_DATA_BURSTS_MAX], payloads[DMR_DATA_BURSTS_MAX][12];
-    uint8_t count;
-} data_req;
+static dmr_data_tx_t data_req;
 static volatile bool data_pending, data_failed, data_cancel;
+
+#define DATA_FIRST 12 // bursts into the FIFO before keying (14 pairs of blocks fit): the rest while it sends
+
+// burst i of the request into the FIFO: a CSBK's or a header's 10 octets with their CRC and mask, a block's 12
+static void put_data_burst(int i, uint8_t cc)
+{
+    uint8_t info[12];
+    const dmr_data_burst_t *d = &data_req.burst[i];
+    if (d->type == DMR_DT_CSBK) {
+        dmr_crc_ccitt_make(d->payload, DMR_MASK_CSBK, info);
+    } else if (d->type == DMR_DT_DATA_HEADER) {
+        dmr_crc_ccitt_make(d->payload, DMR_MASK_DATA_HEADER, info);
+    } else {
+        memcpy(info, d->payload, 12);
+    }
+    dmr_burst_data(txm.b, info, cc, d->type, DMR_SYNC_MS_DATA);
+    put_burst(txm.b);
+}
 
 // the bursts asked, keyed at once (direct mode) or at reset_at (repeater mode); false: not sent
 static bool soft_data(bool rmo, uint32_t reset_at)
 {
     uint8_t cc = trxGetDMRColourCode();
-    uint8_t info[12];
     p25_phy_tx_reset();
     modem_set_mod_scale(MODEM_MOD_SCALE_ONE);
     tx_underruns_seen = 0;
-    for (int i = 0; i < data_req.count; i++) {
-        uint8_t dt = data_req.types[i];
-        if (dt == DMR_DT_CSBK) {
-            dmr_crc_ccitt_make(data_req.payloads[i], DMR_MASK_CSBK, info);
-        } else if (dt == DMR_DT_DATA_HEADER) {
-            dmr_crc_ccitt_make(data_req.payloads[i], DMR_MASK_DATA_HEADER, info);
-        } else {
-            memcpy(info, data_req.payloads[i], 12);
-        }
-        dmr_burst_data(txm.b, info, cc, dt, DMR_SYNC_MS_DATA);
-        put_burst(txm.b);
+    int queued = 0;
+    for (; (queued < data_req.count) && (queued < DATA_FIRST); queued++) {
+        put_data_burst(queued, cc);
     }
     bool later = rmo && dmr_soft_tx_gate && (dmr_soft_rmo_pa_us > 0);
     radio_phy_tx_pa_later(later);
@@ -909,6 +927,9 @@ static bool soft_data(bool rmo, uint32_t reset_at)
     }
     if (dmr_soft_tx_gate) {
         radio_phy_tx_gate_at(later ? (p25_phy_tx_reset_us + (uint32_t)dmr_soft_rmo_pa_us) : 0);
+    }
+    for (; (queued < data_req.count) && !data_cancel; queued++) { // the rest as the FIFO empties (put_burst() waits)
+        put_data_burst(queued, cc);
     }
     p25_phy_tx_pad();
     TickType_t t0 = xTaskGetTickCount();
@@ -949,8 +970,14 @@ static void data(void)
         return;
     }
     dmr_engine_resume();
-    bool ok = HRC7000SendDataBursts(data_req.types, data_req.lengths, (const uint8_t(*)[12])data_req.payloads,
-                                    data_req.count);
+    uint8_t types[DMR_DATA_BURSTS_MAX], lengths[DMR_DATA_BURSTS_MAX], payloads[DMR_DATA_BURSTS_MAX][12];
+    for (int i = 0; i < data_req.count; i++) {
+        types[i] = data_req.burst[i].type;
+        lengths[i] = data_req.burst[i].length;
+        memcpy(payloads[i], data_req.burst[i].payload, 12);
+    }
+    bool ok = (data_req.count <= DMR_DATA_BURSTS_MAX) &&
+              HRC7000SendDataBursts(types, lengths, (const uint8_t(*)[12])payloads, data_req.count);
     TickType_t t0 = xTaskGetTickCount();
     while (ok && !HRC7000DataBurstsDone() && !data_cancel && ((xTaskGetTickCount() - t0) < pdMS_TO_TICKS(DATA_MS))) {
         vTaskDelay(pdMS_TO_TICKS(5));
@@ -967,19 +994,16 @@ static void data(void)
     data_pending = false;
 }
 
-bool dmr_soft_send_data(const uint8_t *types, const uint8_t *lengths, const uint8_t (*payloads)[12], uint8_t count)
+bool dmr_soft_send_data(const dmr_data_tx_t *tx)
 {
     if (data_pending) {
         return false; // the last still going (the radio task sends one at a time)
     }
     data_failed = false; // also for the engine's own way (dmr.c, not received in software)
-    if (!afrx_running(&ops) || (count > DMR_DATA_BURSTS_MAX)) {
+    if (!afrx_running(&ops) || (tx->count == 0) || (tx->count > DMR_DATA_TX_MAX)) {
         return false;
     }
-    memcpy(data_req.types, types, count);
-    memcpy(data_req.lengths, lengths, count);
-    memcpy(data_req.payloads, payloads, (size_t)count * 12);
-    data_req.count = count;
+    memcpy(&data_req, tx, sizeof(data_req));
     data_failed = false;
     data_cancel = false;
     dmr_soft_wake_failed = false; // repeater mode: woken from scratch

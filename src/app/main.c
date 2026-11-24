@@ -74,6 +74,7 @@
 #include "boot_screen.h"
 #include "debug.h"
 #include "test_link.h"
+#include "sms.h"
 
 volatile unsigned long freertos_assert_line = 0;
 
@@ -98,6 +99,7 @@ int main(void)
     flash_init();
     security_load();
     extra_options_load();
+    sms_init();
     panel_init();
     theme_init();
     backlight_set_percent(100);

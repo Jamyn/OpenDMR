@@ -79,5 +79,7 @@ void dmr_engine_transmit(bool on);
 bool dmr_engine_transmitting(void);
 void dmr_lc_heard(const uint8_t lc[9], uint8_t timeslot); // a Full LC heard (9 bytes) on timeslot 0 / 1
 void dmr_call_over(void);                                 // the call heard ended
+void dmr_soft_call_beeps(bool begin); // the software receiver's call began / ended: the receive beeps (dmr.c)
+void dmr_soft_tick(void);             // the engine's task while the software receiver runs: those beeps played
 
 #endif

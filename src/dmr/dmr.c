@@ -588,6 +588,9 @@ static void rx_beeps(void)
             sound_play(SOUND_RX_BEGIN);
         }
     } else if (*state & RX_BEEP_TALKER_HAS_STARTED_EXEC) {
+        if (sound_is_playing()) {
+            return; // the carrier beep first (the software receiver has both at once): this one after it
+        }
         *state &= (uint8_t)~(RX_BEEP_TALKER_HAS_STARTED_EXEC | RX_BEEP_TALKER_HAS_ENDED | RX_BEEP_TALKER_HAS_ENDED_EXEC);
         if ((settings.beep_options & BEEP_RX_TALKER_BEGIN) && must_beep(BEEP_RX_TALKER)) {
             sound_play(SOUND_RX_TALKER_BEGIN);
@@ -604,6 +607,34 @@ static void rx_beeps(void)
             (void)addTimerCallback(carrier_end_beep, CARRIER_END_DELAY_MS, MENU_ANY, false);
         }
     }
+}
+
+// The software receiver's calls (dmr_soft.c), which the engine doesn't see: the same beeps. It has the call with its
+// LC at once, so the carrier and the talker start together (the talker beep after the carrier one, rx_beeps()); its
+// end ends both, the talker beep first and the carrier one a moment later
+void dmr_soft_call_beeps(bool begin)
+{
+    volatile uint8_t *state = &uiDataGlobal.rxBeepState;
+
+    taskENTER_CRITICAL();
+    if (begin) {
+        if ((*state & RX_BEEP_CARRIER_HAS_STARTED) == 0) {
+            *state = (uint8_t)(RX_BEEP_CARRIER_HAS_STARTED | RX_BEEP_CARRIER_HAS_STARTED_EXEC | RX_BEEP_TALKER_IDENTIFIED |
+                               RX_BEEP_TALKER_HAS_STARTED | RX_BEEP_TALKER_HAS_STARTED_EXEC);
+        }
+    } else if (*state & RX_BEEP_CARRIER_HAS_STARTED) {
+        *state |= RX_BEEP_CARRIER_HAS_ENDED;
+        if ((*state & RX_BEEP_TALKER_HAS_STARTED) && ((*state & RX_BEEP_TALKER_HAS_ENDED) == 0)) {
+            *state |= (RX_BEEP_TALKER_HAS_ENDED | RX_BEEP_TALKER_HAS_ENDED_EXEC);
+        }
+    }
+    taskEXIT_CRITICAL();
+}
+
+// The engine's task while the software receiver has the modem (no engine tick): its beeps
+void dmr_soft_tick(void)
+{
+    rx_beeps();
 }
 
 // After each tick of the engine (its task)

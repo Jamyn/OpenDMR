@@ -142,6 +142,7 @@ static void call_end(int ts)
         playing = -1;
         voice_play_end(); // what is queued played out, then the speaker off
         dmr_call_over();
+        dmr_soft_call_beeps(false);
     }
 }
 
@@ -174,6 +175,7 @@ static void call_lc(int ts, const uint8_t lc[9])
             playing = ts;
             vocoderReset();
             voice_play_prepare(); // the speaker on while the voice comes (the header is before it)
+            dmr_soft_call_beeps(true);
         }
     }
     if (playing == ts) {

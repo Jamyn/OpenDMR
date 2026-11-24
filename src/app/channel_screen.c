@@ -845,7 +845,7 @@ static void draw(void)
 
     if ((channel.mode == CODEPLUG_MODE_DMR) && dmr_call(&call)) {
         format_names(zone_text, sizeof(zone_text), name, sizeof(name));
-        qso_panel_draw(&call, name, channel.tx_colour, power_text());
+        qso_panel_draw(&call, name, codeplug_colour_code(&channel), power_text());
         return;
     }
     if ((channel.mode == CODEPLUG_MODE_P25) && p25_radio_call(&p25) && (p25.src != 0)) {
@@ -889,7 +889,7 @@ static void draw(void)
 
     if (channel.mode == CODEPLUG_MODE_DMR) {
         snprintf(ts_text, sizeof(ts_text), "TS%d", target.timeslot);
-        snprintf(cc_text, sizeof(cc_text), "CC%d", channel.tx_colour);
+        snprintf(cc_text, sizeof(cc_text), "CC%d", codeplug_colour_code(&channel));
         status.item1 = ts_text;
         status.item1_bold = true;
         status.item2 = cc_text;

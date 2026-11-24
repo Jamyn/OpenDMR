@@ -554,7 +554,15 @@ language's font is not in the radio, its text shows as "??" and the menu gives i
 <img src="manual/en/calibration.png" alt="Calibration">
 
 Read only: the factory calibration table (oscillator tune, receive level, power values at each frequency).
-**This firmware never changes the calibration.**
+**This firmware never changes the factory calibration.**
+
+The first row says where the calibration comes from:
+- An address (e.g. 0x0C0000): the stock calibration sector. The firmware also keeps a copy of it in its own area.
+- **Copy**: the stock sector is gone (another firmware or tool wrote over it); the copy kept earlier is used.
+- **Default**: neither the stock sector nor a copy exists; a generic default table is used (two radios averaged, the
+  lower power of the two). Digital modes transmit and receive, but frequency and power are not this radio's own.
+
+Once the stock sector is back (a backup written back, for example), it is used again from the next start.
 
 ### APRS options
 

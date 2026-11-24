@@ -314,43 +314,66 @@ bool dmr_repeater_failed(void)
     return (HRC7000GetIsWakingState() == WAKING_MODE_FAILED) || dmr_soft_wake_failed;
 }
 
-bool dmr_aprs_send_position(int32_t latitude_e7, int32_t longitude_e7, uint16_t speed_knots, uint16_t course,
-                            uint32_t destination, uint32_t source)
+// A data transmission (dmr_data.h): in software (dmr_soft.c) while the software receiver runs, else by the engine
+// (12 bursts at most)
+bool dmr_data_send(const dmr_data_tx_t *tx)
 {
-    aprs_dmr_tx_t tx;
     uint8_t types[DMR_DATA_BURSTS_MAX];
     uint8_t lengths[DMR_DATA_BURSTS_MAX];
     uint8_t payloads[DMR_DATA_BURSTS_MAX][12];
 
-    if (!aprs_dmr_build_position(latitude_e7, longitude_e7, speed_knots, course, destination, source, &tx)) {
-        return false;
-    }
-    for (uint8_t i = 0; i < tx.count; i++) {
-        types[i] = tx.burst[i].type;
-        lengths[i] = tx.burst[i].length;
-        memcpy(payloads[i], tx.burst[i].payload, tx.burst[i].length);
-    }
-    // received in software (dmr_soft.c): its task has the engine send them, the recording off meanwhile
-    if (dmr_soft_send_data(types, lengths, (const uint8_t(*)[12])payloads, tx.count)) {
+    if (dmr_soft_send_data(tx)) {
         return true;
     }
-    return HRC7000SendDataBursts(types, lengths, payloads, tx.count);
+    if (dmr_soft_running() || (tx->count > DMR_DATA_BURSTS_MAX)) {
+        return false; // the software's still sending the last one, or too long for the engine
+    }
+    for (uint8_t i = 0; i < tx->count; i++) {
+        types[i] = tx->burst[i].type;
+        lengths[i] = tx->burst[i].length;
+        memcpy(payloads[i], tx->burst[i].payload, tx->burst[i].length);
+    }
+    return HRC7000SendDataBursts(types, lengths, payloads, tx->count);
 }
 
-bool dmr_aprs_busy(void)
+bool dmr_data_busy(void)
 {
     return dmr_soft_data_busy() || !HRC7000DataBurstsDone();
 }
 
-bool dmr_aprs_failed(void)
+bool dmr_data_failed(void)
 {
     return dmr_soft_data_failed() || HRC7000DataBurstsFailed();
 }
 
-void dmr_aprs_cancel(void)
+void dmr_data_cancel(void)
 {
     dmr_soft_data_cancel();
     HRC7000AbortDataBursts();
+}
+
+bool dmr_aprs_send_position(int32_t latitude_e7, int32_t longitude_e7, uint16_t speed_knots, uint16_t course,
+                            uint32_t destination, uint32_t source)
+{
+    aprs_dmr_tx_t tx;
+
+    return aprs_dmr_build_position(latitude_e7, longitude_e7, speed_knots, course, destination, source, &tx) &&
+           dmr_data_send(&tx);
+}
+
+bool dmr_aprs_busy(void)
+{
+    return dmr_data_busy();
+}
+
+bool dmr_aprs_failed(void)
+{
+    return dmr_data_failed();
+}
+
+void dmr_aprs_cancel(void)
+{
+    dmr_data_cancel();
 }
 
 /* The call: the LC of the engine to the last heard list and the UI (lastHeardListUpdate()) */

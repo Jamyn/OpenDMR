@@ -35,6 +35,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "dmr_data.h"
+
 extern volatile uint32_t dmr_soft_enabled; // 0: the HR_C7000 receives (over the cable: A / B tests)
 // transmitted in software too, direct and repeater mode (0: the HR_C7000 engine transmits); 50 mW (tests side by side);
 // counters of the last transmission: calls, bursts, AMBE frames encoded, FIFO underruns
@@ -45,7 +47,7 @@ void dmr_soft_start(void);
 void dmr_soft_stop(void);
 // APRS over DMR with the software receiver running (dmr.c): the bursts sent in software (direct mode, or the repeater
 // woken first; dmr_soft_tx 0: by the engine); false: not running (the engine's own way then)
-bool dmr_soft_send_data(const uint8_t *types, const uint8_t *lengths, const uint8_t (*payloads)[12], uint8_t count);
+bool dmr_soft_send_data(const dmr_data_tx_t *tx);
 bool dmr_soft_data_busy(void);
 bool dmr_soft_data_failed(void);
 void dmr_soft_data_cancel(void);

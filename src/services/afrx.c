@@ -156,7 +156,7 @@ static void task_main(void *arg)
             transmit(o, o->transmit);
             last_half = 0;
         }
-        if (data_want && o->data) {
+        if (data_want && o->data && (!o->tx_ready || o->tx_ready())) {
             data_want = false;
             transmit(o, o->data);
             last_half = 0;

@@ -121,6 +121,8 @@ void dmr_full_lc_make(const uint8_t lc[9], uint32_t mask, uint8_t out[12]);
 uint16_t dmr_crc_ccitt(const uint8_t *d, int n);
 void dmr_crc_ccitt_make(const uint8_t d[10], uint16_t mask, uint8_t out[12]);
 bool dmr_crc_ccitt_check(const uint8_t d[12], uint16_t mask);
+// The message CRC-32 (B.3.9) of a packet's user data and pad octets; sent after them least significant octet first
+uint32_t dmr_crc32(const uint8_t *d, int n);
 // a data burst: the 12 information bytes through the BPTC (196,96), the Slot Type, the middle the SYNC of kind
 void dmr_burst_data(uint8_t b[DMR_BURST_BYTES], const uint8_t info[12], uint8_t cc, uint8_t data_type, int sync);
 // a voice burst: its 3 AMBE+2 frames, the middle the voice SYNC of kind (A) ...

@@ -93,6 +93,11 @@ class Radio:
         self._request(b'Da' + frequency.to_bytes(4, 'big'), b'Da')
         return self.port.read(1) == b'\x01'
 
+    def dmr_position(self):
+        """An APRS-over-DMR position report on the channel now (the fixed position, to the gateway); True: accepted"""
+        self._request(b'Dp', b'Dp')
+        return self.port.read(1) == b''
+
     def data(self, ms, fail=False):
         """A test data burst through the radio task (no DMR engine, no RF): sent for ms, or failing; True: accepted"""
         self._request(b'Dd' + bytes([(ms >> 8) & 0xFF, ms & 0xFF, 1 if fail else 0]), b'Dd')

@@ -40,6 +40,7 @@
 
 #include <string.h>
 #include "aprs_dmr.h"
+#include "dmr_l2.h"
 
 #define LRRP_PORT             4001u
 #define IP_PROTOCOL_UDP       17u
@@ -104,22 +105,6 @@ static void add_burst(aprs_dmr_tx_t *tx, uint8_t type, const uint8_t *payload)
     burst->length = (type == APRS_DMR_BURST_RATE_1_2) ? RATE_12_BYTES : 10;
     memset(burst->payload, 0, sizeof(burst->payload));
     memcpy(burst->payload, payload, burst->length);
-}
-
-// ETSI B.3.9: pairs of octets are taken least significant first, polynomial 0x04C11DB7, remainder zero
-static uint32_t crc32_dmr(const uint8_t *data, int length)
-{
-    uint32_t crc = 0;
-    int padded = (length + 1) & ~1;
-
-    for (int i = 0; i < padded; i++) {
-        int index = i ^ 1;
-        crc ^= (uint32_t)((index < length) ? data[index] : 0) << 24;
-        for (int bit = 0; bit < 8; bit++) {
-            crc = (crc & 0x80000000UL) ? ((crc << 1) ^ 0x04C11DB7UL) : (crc << 1);
-        }
-    }
-    return crc;
 }
 
 static uint16_t ones_complement_sum(uint32_t sum, const uint8_t *data, int length)
@@ -309,7 +294,7 @@ bool aprs_dmr_build_position(int32_t latitude_e7, int32_t longitude_e7, uint16_t
 
     memcpy(packet_data, ip_packet, (size_t)length);
     memset(&packet_data[length], 0, (size_t)pad);
-    crc = crc32_dmr(packet_data, length + pad);
+    crc = dmr_crc32(packet_data, length + pad);
     packet_data[length + pad] = (uint8_t)crc;
     packet_data[length + pad + 1] = (uint8_t)(crc >> 8);
     packet_data[length + pad + 2] = (uint8_t)(crc >> 16);

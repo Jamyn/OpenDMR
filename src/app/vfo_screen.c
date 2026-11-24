@@ -872,7 +872,7 @@ static void draw_status_bar(const codeplug_channel_t *v)
     status.scanning = scan.active || tone_scan.active;
     if (v->mode == CODEPLUG_MODE_DMR) {
         snprintf(ts_text, sizeof(ts_text), "TS%d", target.timeslot);
-        snprintf(cc_text, sizeof(cc_text), "CC%d", v->tx_colour);
+        snprintf(cc_text, sizeof(cc_text), "CC%d", codeplug_colour_code(v));
         status.item1 = ts_text;
         status.item1_bold = true;
         status.item2 = cc_text;
@@ -957,7 +957,7 @@ static void draw(void)
 
     if ((v->mode == CODEPLUG_MODE_DMR) && !digit_entry_active(&entry) && dmr_call(&call)) {
         snprintf(buffer, sizeof(buffer), "VFO %c", (vfo_screen_current() == 0) ? 'A' : 'B');
-        qso_panel_draw(&call, buffer, v->tx_colour, power_text(v));
+        qso_panel_draw(&call, buffer, codeplug_colour_code(v), power_text(v));
         return;
     }
     if ((v->mode == CODEPLUG_MODE_P25) && !digit_entry_active(&entry) && p25_radio_call(&p25) && (p25.src != 0)) {

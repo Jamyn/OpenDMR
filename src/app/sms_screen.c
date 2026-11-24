@@ -33,7 +33,8 @@
  * - a box: two-line rows as the last heard (who, when / the outbox's state, the text's start; unread with the mail
  *   icon); the left key reads
  * - reading: who as the title, the mode, the call and when under it, the text wrapped (UP / DOWN scroll); the left key
- *   replies (writing to the same), SK2 + the left key deletes (asked first)
+ *   replies (the inbox: writing to the same) or sends it again (the outbox: as it was, to the same, on the channel
+ *   now), SK2 + the left key deletes (asked first)
  * - writing: the To row (DMR: the ID typed, # a talk group or a radio; M17: the callsign typed, empty: all) and the
  *   text (text_entry.c's keys; # the quick texts); UP / DOWN between the two; the left key sends on the channel's mode
  *   (sms.c), the result as a notice; the title counts the characters (SMS_CHARS)
@@ -332,6 +333,16 @@ static bool read_handle(const ui_event_t *ev)
                 ui_push(&message_box_screen, (void *)&box);
                 return false;
             }
+            if (read_box == SMS_OUTBOX) { // sent again, as it was
+                if (sms_send(msg.dst, msg.group, msg.peer, msg.text)) {
+                    ui_notify(TEXT_SMS, TEXT_SMS_SENDING, UI_NOTICE_TX, 3000);
+                    ui_pop(); // back to the outbox: the new one on top
+                } else {
+                    ui_key_beep(SOUND_ERROR);
+                    ui_notify(TEXT_SMS, TEXT_SMS_NO_CHANNEL, UI_NOTICE_ERROR, 3000);
+                }
+                return false;
+            }
             memset(&compose, 0, sizeof(compose)); // a reply: to the same
             compose.mode = msg.mode;
             compose.group = msg.group;
@@ -350,7 +361,7 @@ static void read_draw(void)
     char who[48], info[64], when[16];
     peer_of(read_box, &msg, who, sizeof(who));
     list_view_draw_title(who, NULL);
-    bottom_bar_draw_soft_keys(text(TEXT_SMS_REPLY), text(TEXT_UI_BACK));
+    bottom_bar_draw_soft_keys(text((read_box == SMS_OUTBOX) ? TEXT_SMS_RESEND : TEXT_SMS_REPLY), text(TEXT_UI_BACK));
     if (!lines && !msg.text[0]) {
         return;
     }

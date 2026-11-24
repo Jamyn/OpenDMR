@@ -478,4 +478,5 @@ const char *const text_en[TEXT_COUNT] = {
     [TEXT_SMS_DELETE_QM] = "Delete message?",
     [TEXT_SMS_GROUP] = "Group",
     [TEXT_SMS_HINT_KEYS] = "0-9 type  * symbols  # quick texts",
+    [TEXT_SMS_RESEND] = "Send again",
 };

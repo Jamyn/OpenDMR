@@ -482,6 +482,7 @@ typedef enum {
     TEXT_SMS_DELETE_QM,
     TEXT_SMS_GROUP,
     TEXT_SMS_HINT_KEYS,
+    TEXT_SMS_RESEND,
     TEXT_COUNT
 } text_id_t;
 

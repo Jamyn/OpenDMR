@@ -476,6 +476,32 @@ void dmr_full_lc_make(const uint8_t lc[9], uint32_t mask, uint8_t out[12])
     out[11] = r[2] ^ (uint8_t)mask;
 }
 
+uint16_t dmr_crc_ccitt(const uint8_t *d, int n)
+{
+    // B.3.8: g(x) = x^16 + x^12 + x^5 + 1, the remainder from 0, inverted
+    uint16_t crc = 0;
+    for (int i = 0; i < n; i++) {
+        crc ^= (uint16_t)(d[i] << 8);
+        for (int k = 0; k < 8; k++) {
+            crc = (crc & 0x8000) ? (uint16_t)((crc << 1) ^ 0x1021) : (uint16_t)(crc << 1);
+        }
+    }
+    return (uint16_t)~crc;
+}
+
+void dmr_crc_ccitt_make(const uint8_t d[10], uint16_t mask, uint8_t out[12])
+{
+    uint16_t crc = dmr_crc_ccitt(d, 10) ^ mask;
+    memcpy(out, d, 10);
+    out[10] = (uint8_t)(crc >> 8);
+    out[11] = (uint8_t)crc;
+}
+
+bool dmr_crc_ccitt_check(const uint8_t d[12], uint16_t mask)
+{
+    return (dmr_crc_ccitt(d, 10) ^ mask) == (uint16_t)((d[10] << 8) | d[11]);
+}
+
 void dmr_burst_data(uint8_t b[DMR_BURST_BYTES], const uint8_t info[12], uint8_t cc, uint8_t data_type, int sync)
 {
     uint8_t m[196]; // the encoded matrix: index 0 R(3), then 13 rows of 15

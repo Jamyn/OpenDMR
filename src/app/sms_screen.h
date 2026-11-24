@@ -35,5 +35,6 @@
 
 extern const ui_custom_t sms_menu_entry; // the main menu's "Messages" (its unread count; opens the menu)
 extern const ui_custom_t sms_format_item; // the options' DMR format (Hytera / Motorola / DMR)
+void sms_screen_init(void);               // at start: the new message notice's left key reads it
 
 #endif

@@ -161,6 +161,9 @@ bool ui_notify(text_id_t line1, text_id_t line2, ui_notice_kind_t kind, uint32_t
 bool ui_notify_text(text_id_t line1, const char *line2, ui_notice_kind_t kind, uint32_t ms);
 // notice.c, by the UI task; line2_text: the text of line2 when not NULL (line2 then ignored)
 void ui_notice_draw(text_id_t line1, text_id_t line2, const char *line2_text, ui_notice_kind_t kind);
+// The left key on a notice of that kind: it closes it and does action (the UI task; NULL: none, as any key); while it
+// shows, the soft keys say so (label, Close: the right key, as any other, only closes it)
+void ui_set_notice_action(ui_notice_kind_t kind, void (*action)(void), text_id_t label);
 void ui_key_beep(const int16_t *melody); // from handle(): the beep of this key instead of the key beep; NULL: none
 void ui_timer_stop(void);
 

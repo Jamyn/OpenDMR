@@ -58,6 +58,7 @@
 #include "text_entry.h"
 #include "message_box.h"
 #include "tx_target.h"
+#include "lock_screen.h"
 #include "sms_screen.h"
 
 #define BODY_TOP    LIST_VIEW_TOP
@@ -166,6 +167,12 @@ static void box_clamp(int box, int32_t *sel)
 
 static const ui_screen_t read_screen;
 
+// the read screen's arg: the box and the index, + 1 (NULL is "back on top")
+static void *read_arg(int box, int index)
+{
+    return (void *)(uintptr_t)(((box << 8) | (index & 0xFF)) + 1);
+}
+
 static int box_of(void)
 {
     return (int)(uintptr_t)ui_arg();
@@ -199,7 +206,7 @@ static bool box_handle(const ui_event_t *ev)
             return true;
         }
         if ((ev->key == UI_KEY_GREEN) && (ev->type == UI_EVENT_KEY_PRESS)) {
-            ui_push(&read_screen, (void *)(uintptr_t)((box << 8) | (*sel & 0xFF)));
+            ui_push(&read_screen, read_arg(box, (int)*sel));
             return false;
         }
     }
@@ -283,8 +290,9 @@ static int read_rows(void)
 static void read_enter(void *arg)
 {
     if (arg) { // pushed (back on top: NULL, the same message)
-        read_box = (int)((uintptr_t)arg >> 8);
-        read_index = (int)((uintptr_t)arg & 0xFF);
+        uintptr_t a = (uintptr_t)arg - 1;
+        read_box = (int)(a >> 8);
+        read_index = (int)(a & 0xFF);
         read_first = 0;
     }
     if (!sms_get(read_box, read_index, &msg)) {
@@ -694,6 +702,19 @@ static void entry_open(void)
 }
 
 const ui_custom_t sms_menu_entry = {.format = entry_format, .select = entry_open};
+
+// The new message's notice: its left key reads it (the newest of the inbox); not while the keypad is locked
+static void notice_read(void)
+{
+    if (!lock_screen_is_keypad_locked() && (sms_count(SMS_INBOX) > 0)) {
+        ui_push(&read_screen, read_arg(SMS_INBOX, 0));
+    }
+}
+
+void sms_screen_init(void)
+{
+    ui_set_notice_action(UI_NOTICE_MAIL, notice_read, TEXT_SMS_READ);
+}
 
 static const text_id_t formats[DMR_SMS_FORMATS] = {TEXT_SMS_HYTERA, TEXT_SMS_MOTOROLA, TEXT_SMS_DMR};
 

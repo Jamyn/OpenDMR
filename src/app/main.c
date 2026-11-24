@@ -75,6 +75,7 @@
 #include "debug.h"
 #include "test_link.h"
 #include "sms.h"
+#include "sms_screen.h"
 
 volatile unsigned long freertos_assert_line = 0;
 
@@ -134,6 +135,7 @@ int main(void)
     sound_play_boot();
     display_theme_apply(); // the settings and the clock read
     ui_set_event_hook(screen_hooks);
+    sms_screen_init();
     ui_start(((settings_valid() && (settings.initial_menu_number == VFO_SCREEN_MENU_VFO)) ? &vfo_screen
                                                                                           : &channel_screen),
              // the power-on PIN first, else the lock screen (the lock PIN), else the FM radio if it was on

@@ -40,6 +40,7 @@
 #include "sound.h"
 #include "radio.h"
 #include "ui.h"
+#include "widgets.h"
 
 #define STACK_DEPTH      8
 #define QUEUE_LENGTH     16
@@ -249,6 +250,17 @@ bool ui_notify(text_id_t line1, text_id_t line2, ui_notice_kind_t kind, uint32_t
     return ui_post(&ev);
 }
 
+static void (*notice_actions[UI_NOTICE_MAIL + 1])(void);
+static text_id_t notice_labels[UI_NOTICE_MAIL + 1];
+
+void ui_set_notice_action(ui_notice_kind_t kind, void (*action)(void), text_id_t label)
+{
+    if (kind <= UI_NOTICE_MAIL) {
+        notice_actions[kind] = action;
+        notice_labels[kind] = label;
+    }
+}
+
 // The notice's own events (true: taken): it shows one, or the user's key, knob step or PTT closes it (the PTT goes on
 // to the screen, the others are taken with the rest of that press)
 static bool notice_event(const ui_event_t *ev)
@@ -279,6 +291,12 @@ static bool notice_event(const ui_event_t *ev)
     if (notice.showing && ((ev->type == UI_EVENT_KEY_PRESS) || (ev->type == UI_EVENT_ROTARY))) {
         notice.showing = false;
         redraw = true;
+        if ((ev->type == UI_EVENT_KEY_PRESS) && (ev->key == UI_KEY_GREEN) && !ev->modifiers &&
+            (notice.kind <= UI_NOTICE_MAIL) && notice_actions[notice.kind]) {
+            notice.swallowed_key = ev->key; // its release too
+            notice_actions[notice.kind]();
+            return true;
+        }
         if (ev->type == UI_EVENT_ROTARY) {
             return true;
         }
@@ -298,6 +316,9 @@ static void draw(void)
     }
     if (notice.showing) {
         ui_notice_draw(notice.line1, notice.line2, (notice.line2 == NOTICE_TEXT) ? notice_text : NULL, notice.kind);
+        if ((notice.kind <= UI_NOTICE_MAIL) && notice_actions[notice.kind]) {
+            bottom_bar_draw_soft_keys(text(notice_labels[notice.kind]), text(TEXT_UI_CLOSE));
+        }
     }
     fb_flush();
 }

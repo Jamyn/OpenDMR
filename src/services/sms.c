@@ -41,6 +41,7 @@
  * (within ACK_WAIT_MS), SMS_FAILED when it couldn't be sent (no repeater).
  */
 
+#include <stdio.h>
 #include <string.h>
 
 #include "FreeRTOS.h"
@@ -56,6 +57,9 @@
 #include "extra_options.h"
 #include "m17_radio.h"
 #include "sms.h"
+#include "ui.h"
+#include "sound.h"
+#include "dmr_ids.h"
 
 #define RX_QUEUE    2
 #define ACK_WAIT_MS 10000 // a TMS acknowledgement waited for this long after the message is out
@@ -421,11 +425,15 @@ bool sms_send(uint32_t dst, bool group, const char *m17_dst, const char *text)
 
 static void finish(uint8_t status)
 {
+    static const text_id_t shown[] = {TEXT_SMS_SENDING, TEXT_SMS_SENT, TEXT_SMS_DELIVERED, TEXT_SMS_FAILED};
     out.active = false;
     sending_state = status;
     if (out.slot >= 0) {
         set_status(out.slot, status);
     }
+    ui_notify(TEXT_SMS, shown[status & 3], (status == SMS_FAILED) ? UI_NOTICE_ERROR : UI_NOTICE_OK, 3000);
+    ui_event_t ev = {.type = UI_EVENT_DATA, .what = UI_DATA_SMS};
+    ui_post(&ev);
 }
 
 /* ---- the input task's ---- */
@@ -486,6 +494,20 @@ static void received(rx_t *q)
     strncpy(m->text, q->r.text, SMS_TEXT_MAX);
     if (store(SMS_INBOX, m) >= 0) {
         sms_stats[0]++;
+        char who[UI_NOTICE_TEXT_MAX + 1];
+        if (m->mode == SMS_MODE_M17) {
+            strncpy(who, m->peer, sizeof(who) - 1);
+            who[sizeof(who) - 1] = 0;
+        } else {
+            dmr_ids_caller_text(m->src, who, sizeof(who));
+            if (!who[0]) {
+                snprintf(who, sizeof(who), "%lu", (unsigned long)m->src);
+            }
+        }
+        ui_notify_text(TEXT_SMS_NEW, who, UI_NOTICE_MAIL, 8000);
+        sound_play(SOUND_SMS);
+        ui_event_t ev = {.type = UI_EVENT_DATA, .what = UI_DATA_SMS};
+        ui_post(&ev);
     }
 }
 

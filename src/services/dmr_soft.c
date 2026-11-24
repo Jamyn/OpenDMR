@@ -50,9 +50,19 @@
  * transmitter keyed once the first burst's first two AMBE frames are encoded, so the burst follows it at once), the
  * voice superframes (A the voice SYNC; B - E the LC embedded; F the null message), the last one finished with silence
  * after the PTT, then the terminator with LC. The FIFO run dry (zeros sent) an odd number of blocks: one more put in,
- * the bursts kept in their timeslot. Repeater mode: the HR_C7000 engine transmits (dmr_engine_transmit()). The
- * demodulator's state and the voice
- * queue live after the vocoder's RAM (ckcpu.ld .dmrs_rx, where NXDN's is when NXDN runs).
+ * the bursts kept in their timeslot.
+ *
+ * Transmit, repeater mode (Rx != Tx, ETSI TS 102 361-1 4.4.1, 5.2.2.2): the MS's timing is the repeater's. Its bursts
+ * (a BS sync, the timeslot from the CACH) are followed as received; once DL_RUN of them in a row, the last fresh and one
+ * of them with our colour code, the transmission is planned on their time line: the physical layer's reset (its send
+ * timer, p25_phy_tx_begin_at()) at the time that puts our burst's symbol 0 on the air with the repeater's burst of our
+ * timeslot (4.2: the centres of the inbound and outbound bursts aligned; the inbound TS1 burst at the outbound TS1's,
+ * as the HR_C7000 and MMDVM do: measured, tools/debug/dmr_rmo_timing.py), dmr_soft_rmo_lead_us before the repeater's
+ * burst start as received. Then the same bursts as in direct mode, the PA on in our timeslot only, the FD6818 back to
+ * the receive frequency in between (radio_rf.c). No repeater: the wake-up (5.2.2.2.4: a CSBK BS_Dwn_Act, ETSI TS
+ * 102 361-2), receiving meanwhile (tx_ready()), again every WAKE_RETRY_MS up to the codeplug's attempts, then failed
+ * (dmr_repeater_failed(): the TX screen's error). The demodulator's state and the voice queue live after the vocoder's
+ * RAM (ckcpu.ld .dmrs_rx, where NXDN's is when NXDN runs).
  */
 
 #include <string.h>
@@ -91,6 +101,11 @@
                            // first only, 1 call in 12 ran the FIFO dry between the header and the burst (2026-11-20)
 #define TX_GUARD      6    // symbols each side of a burst in its 144
 #define TX_END_MS     3000 // the engine's transmission ending (a repeater's hang time) at most, before receiving again
+#define DL_RUN        4    // repeater mode: its bursts in a row before transmitting on them (the engine: 4 timecodes)
+#define DL_FRESH_MS   100  // ... the last at most this old
+#define DL_CC_MS      1000 // ... one with our colour code at most this old
+#define WAKE_RETRY_MS 600  // the wake-up again after this long without the repeater (the engine's, the stock firmware's)
+#define RMO_SETUP_US  40000 // our first burst at least this far ahead (the transmitter's 30 ms set up, the first voice)
 
 #define OVERLAY_BSS __attribute__((section(".dmrs_bss"))) // after the vocoder's RAM (ckcpu.ld), not zeroed
 
@@ -109,9 +124,10 @@ static int16_t pcm[PCM_FRAMES][VOICE_PLAY_SAMPLES] OVERLAY_BSS;
 // before that)
 int16_t dmr_soft_tap[TAP_SAMPLES] OVERLAY_BSS;
 volatile uint32_t dmr_soft_tap_n, dmr_soft_tap_hold;
-// the last bursts: the 33 bytes, the sync kind, the timeslot, the mse (Q4 level^2, at most 255), slots since a sync
-uint8_t dmr_soft_burst_log[BURST_LOG][37] OVERLAY_BSS;
-volatile uint32_t dmr_soft_burst_log_n;
+// the last bursts: the 33 bytes, the sync kind, the timeslot, the mse (Q4 level^2, at most 255), slots since a sync,
+// the time its symbol 0 was received (systime_get_us(), little endian; 0: not known yet). Not 0: the log kept as it is
+uint8_t dmr_soft_burst_log[BURST_LOG][41] OVERLAY_BSS;
+volatile uint32_t dmr_soft_burst_log_n, dmr_soft_burst_log_hold;
 
 typedef struct {
     bool active;      // a call followed: its LC taken
@@ -123,6 +139,37 @@ typedef struct {
 } slot_t;
 
 static slot_t slots[2];
+
+// repeater mode: its last burst with a BS sync (dmr_burst_t.at, the timeslot), its run of them, our colour code seen
+static struct {
+    bool any, cc_seen;
+    uint32_t burst, at;
+    int ts, run;
+    TickType_t last, cc_ok;
+} dl;
+
+// repeater mode's wake-ups for the PTT held
+static struct {
+    int sent;
+    TickType_t at;
+} wake;
+static volatile bool wake_reset; // a new PTT
+volatile bool dmr_soft_wake_failed;
+// The physical layer's reset for our burst: the repeater's burst's start as received (afrx_sample_us()) less this (the
+// receive delay, and the physical layer's from its reset to symbol 0 on the air). Measured with another radio on both
+// frequencies (tools/debug/dmr_rmo_timing.py, 2026-11-24, MMDVM_HS): our TS1 bursts +71, -39, +71 us from the
+// repeater's (the HR_C7000 engine's +206 us); the hotspot's BER 0.7 - 1.3 % (the engine's 1.3 - 1.9 %) at -60 dBm
+volatile int32_t dmr_soft_rmo_lead_us = 8770;
+// wake-ups sent, transmissions on the repeater's time line, wakes failed, the last reset's lateness (us), its plan's
+// time ahead (us), the repeater's burst it went by: its age (us)
+volatile uint32_t dmr_soft_rmo_stats[6];
+volatile uint32_t dmr_soft_rmo_plan_clock[2]; // the last plan's recording clock: its halves, their spread (us)
+// The PA on for the first burst this long after the physical layer's reset (0: on from the set up, 30 ms before, an
+// unmodulated carrier over the other timeslot): the first transmit interrupt comes 3.5 - 3.6 ms after the reset, then
+// every 30 ms (measured 2026-11-24); the burst's data starts 28.2 ms after the interrupt before it (radio_rf.c), so the
+// first burst's at ~1.8 ms; the PA on 1.3 ms before it, as the gate does for the others. The repeater (MMDVM_HS) logged
+// the voice header of every transmission so
+volatile int32_t dmr_soft_rmo_pa_us = 500;
 static uint32_t burst_n;
 static int phase;      // the timeslot of burst n: (n + phase) & 1
 static int playing;    // the timeslot played (-1 none)
@@ -230,6 +277,9 @@ static bool ts_ok(int ts)
 
 static void log_burst(const dmr_burst_t *b, int ts)
 {
+    if (dmr_soft_burst_log_hold) {
+        return;
+    }
     uint8_t *e = dmr_soft_burst_log[dmr_soft_burst_log_n % BURST_LOG];
     memcpy(e, b->bits, DMR_BURST_BYTES);
     e[33] = (uint8_t)b->sync;
@@ -237,6 +287,9 @@ static void log_burst(const dmr_burst_t *b, int ts)
     int32_t m = b->mse >> 4;
     e[35] = (uint8_t)((m > 255) ? 255 : m);
     e[36] = (uint8_t)((b->since_sync > 255) ? 255 : b->since_sync);
+    uint32_t us = 0;
+    afrx_sample_us(b->at, &us);
+    memcpy(&e[37], &us, 4);
     dmr_soft_burst_log_n++;
 }
 
@@ -259,6 +312,20 @@ static void on_burst(void *ctx, const dmr_burst_t *b)
     int ts = (int)((n + (uint32_t)phase) & 1);
     slot_t *s = &slots[ts];
     log_burst(b, ts);
+    if (DMR_SYNC_IS_BS(b->sync)) { // a repeater's: its time line for repeater mode's transmitting
+        TickType_t now = xTaskGetTickCount();
+        dl.run = (dl.any && ((n - dl.burst) <= 2)) ? dl.run + 1 : 1;
+        dl.any = true;
+        dl.burst = n;
+        dl.at = b->at;
+        dl.ts = ts;
+        dl.last = now;
+        uint8_t cc, dt;
+        if (DMR_SYNC_IS_DATA(b->sync) && dmr_slot_type(b->bits, &cc, &dt) && (cc == trxGetDMRColourCode())) {
+            dl.cc_ok = now;
+            dl.cc_seen = true;
+        }
+    }
     if (!ts_ok(ts)) {
         return;
     }
@@ -357,6 +424,7 @@ static void rx_init(void)
     playing = -1;
     burst_n = 0;
     phase = 0;
+    memset(&dl, 0, sizeof(dl));
     vocoderReset();
 }
 
@@ -432,7 +500,8 @@ static void put_burst(const uint8_t b[DMR_BURST_BYTES])
     dmr_soft_tx_stats[1]++;
 }
 
-static void soft_transmit(void)
+// rmo: repeater mode, the transmitter keyed at once, its timing from reset_at (rmo_plan()); else direct mode
+static void soft_transmit(bool rmo, uint32_t reset_at)
 {
     static const uint8_t silence[DMR_AMBE_BYTES] = {0xB9, 0xE8, 0x81, 0x52, 0x61, 0x73, 0x00, 0x2A, 0x6B};
     static const uint8_t lcss[5] = {DMR_LCSS_FIRST, DMR_LCSS_CONT, DMR_LCSS_CONT, DMR_LCSS_LAST, DMR_LCSS_SINGLE};
@@ -467,10 +536,26 @@ static void soft_transmit(void)
         p25_ev_log(33, (uint16_t)i); // the delay log (p25_radio.c): a voice LC header into the FIFO
     }
     bool keyed = false;
+    if (rmo) { // on the repeater's time line: keyed now (the PA kept off until our first burst), the header first,
+               // the voice as it is encoded
+        radio_phy_tx_pa_later(dmr_soft_tx_gate && (dmr_soft_rmo_pa_us > 0));
+        keyed = afrx_fifo_key_at(dmr_soft_tx_low_power != 0, reset_at);
+        radio_phy_tx_pa_later(false);
+        p25_ev_log(35, keyed);
+        if (keyed) {
+            dmr_soft_rmo_stats[3] = p25_phy_tx_reset_us - reset_at;
+            if (dmr_soft_tx_gate) {
+                radio_phy_tx_gate_at((dmr_soft_rmo_pa_us > 0) ? (p25_phy_tx_reset_us + (uint32_t)dmr_soft_rmo_pa_us) : 0);
+            }
+        }
+    }
     int16_t *pcm = txm.pcm;
     int halves = 0, nf = 0, pos = 0, sf = 0, tx_voice_logged = 0;
     bool ending = false;
     for (;;) {
+        if (rmo && !keyed) {
+            break;
+        }
         if (!afrx_ptt_held()) {
             ending = true;
         }
@@ -539,13 +624,116 @@ static void soft_transmit(void)
     }
 }
 
-// The PTT held: the recording and the playback are off (afrx.c). Direct mode: in software; repeater mode: the engine
-// transmits from its receive state from scratch, until the PTT is released and its transmission (a repeater's hang
-// time) is over
+/* ---- repeater mode ---- */
+
+static bool rmo(void)
+{
+    return currentRadioDevice->trxDMRModeTx == DMR_MODE_RMO;
+}
+
+// the repeater followed: its bursts in a row, the last fresh, our colour code among them, the recording's clock known
+static bool downlink_ok(void)
+{
+    TickType_t now = xTaskGetTickCount();
+    uint32_t us;
+    return dl.any && (dl.run >= DL_RUN) && ((now - dl.last) <= pdMS_TO_TICKS(DL_FRESH_MS)) && dl.cc_seen &&
+           ((now - dl.cc_ok) <= pdMS_TO_TICKS(DL_CC_MS)) && afrx_sample_us(dl.at, &us);
+}
+
+// the physical layer's reset for our next burst: its symbol 0 on the air with the repeater's burst of our timeslot,
+// at least RMO_SETUP_US ahead; false: the time line not known
+static bool rmo_plan(uint32_t *reset_at)
+{
+    uint32_t us;
+    if (!afrx_sample_us(dl.at, &us)) {
+        return false;
+    }
+    uint32_t now = systime_get_us();
+    uint32_t t = us + ((dl.ts != trxGetDMRTimeSlot()) ? 30000u : 0u) - (uint32_t)dmr_soft_rmo_lead_us;
+    while ((int32_t)(t - now) < RMO_SETUP_US) {
+        t += 60000u;
+    }
+    extern volatile uint32_t afrx_clock[2];
+    dmr_soft_rmo_plan_clock[0] = afrx_clock[0];
+    dmr_soft_rmo_plan_clock[1] = afrx_clock[1];
+    dmr_soft_rmo_stats[4] = t - now;
+    dmr_soft_rmo_stats[5] = now - us;
+    *reset_at = t;
+    return true;
+}
+
+// The wake-up as the engine sends it (ETSI TS 102 361-2, CSBK BS_Dwn_Act: CSBKO 0x38 with its last block bit, FID 0,
+// 16 bits reserved, the BS address all ones, ours), one burst, then the transmitter off at once
+static void send_wake(void)
+{
+    uint8_t csbk[10] = {0xB8, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, (uint8_t)(trxDMRID >> 16), (uint8_t)(trxDMRID >> 8),
+                        (uint8_t)trxDMRID};
+    uint8_t info[12];
+    dmr_crc_ccitt_make(csbk, DMR_MASK_CSBK, info);
+    dmr_burst_data(txm.b, info, trxGetDMRColourCode(), DMR_DT_CSBK, DMR_SYNC_MS_DATA);
+    p25_phy_tx_reset();
+    modem_set_mod_scale(MODEM_MOD_SCALE_ONE);
+    tx_underruns_seen = 0;
+    put_burst(txm.b);
+    radio_phy_tx_pa_later(dmr_soft_tx_gate && (dmr_soft_rmo_pa_us > 0)); // no carrier before the burst
+    int begun = p25_phy_tx_begin(dmr_soft_tx_low_power != 0);
+    radio_phy_tx_pa_later(false);
+    if (begun == 0) {
+        if (dmr_soft_tx_gate) {
+            radio_phy_tx_gate_at((dmr_soft_rmo_pa_us > 0) ? (p25_phy_tx_reset_us + (uint32_t)dmr_soft_rmo_pa_us) : 0);
+        }
+        // the burst out once the second interrupt came (the empty block after it being read)
+        TickType_t t0 = xTaskGetTickCount();
+        while (((p25_phy_tx_isr_n == UINT32_MAX) || (p25_phy_tx_isr_n < 1)) &&
+               ((xTaskGetTickCount() - t0) < pdMS_TO_TICKS(100))) {
+            vTaskDelay(1);
+        }
+        radio_phy_tx_gate(false);
+        p25_phy_tx_end();
+    }
+}
+
+// The PTT held, transmit() now? Repeater mode: not while waiting for the repeater after a wake-up, nor once failed
+static bool tx_ready(void)
+{
+    if (wake_reset) {
+        wake_reset = false;
+        wake.sent = 0;
+    }
+    if (!dmr_soft_tx || !rmo() || downlink_ok()) {
+        return true;
+    }
+    if (dmr_soft_wake_failed) {
+        return false;
+    }
+    return (wake.sent == 0) || ((xTaskGetTickCount() - wake.at) >= pdMS_TO_TICKS(WAKE_RETRY_MS));
+}
+
+// The PTT held: the recording and the playback are off (afrx.c). In software: direct mode; repeater mode on the
+// repeater's time line, or its wake-up (then receiving again, tx_ready()); dmr_soft_tx 0: the engine transmits from
+// its receive state from scratch, until the PTT is released and its transmission (a repeater's hang time) is over
 static void transmit(void)
 {
-    if (dmr_soft_tx && currentChannelData && (currentChannelData->rx_freq == currentChannelData->tx_freq)) {
-        soft_transmit();
+    if (dmr_soft_tx && !rmo()) {
+        soft_transmit(false, 0);
+        return;
+    }
+    if (dmr_soft_tx) {
+        uint32_t reset_at;
+        if (downlink_ok() && rmo_plan(&reset_at)) {
+            dmr_soft_rmo_stats[1]++;
+            soft_transmit(true, reset_at);
+            return;
+        }
+        if (wake.sent > codeplugGetRepeaterWakeAttempts()) {
+            dmr_soft_wake_failed = true; // the TX screen ends it (dmr_repeater_failed())
+            dmr_soft_rmo_stats[2]++;
+            return;
+        }
+        send_wake();
+        wake.sent++;
+        wake.at = xTaskGetTickCount();
+        dmr_soft_rmo_stats[0]++;
         return;
     }
     dmr_engine_resume();
@@ -639,6 +827,8 @@ static const afrx_ops_t ops = {
     .poll = poll,
     .end_call = end_call,
     .transmit = transmit,
+    .tx_ready = tx_ready,
+    .precise_clock = true, // repeater mode's timing (and the burst log's times)
     .data = data,
     .stats = {
         .halves = &dmr_soft_stats.halves,
@@ -676,6 +866,10 @@ bool dmr_soft_running(void)
 
 void dmr_soft_ptt(bool on)
 {
+    if (on) {
+        dmr_soft_wake_failed = false;
+        wake_reset = true;
+    }
     afrx_ptt(on);
 }
 

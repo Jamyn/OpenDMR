@@ -27,8 +27,8 @@
  */
 
 // The DMR receiver in software (dmr_soft.c): the FM discriminator recorded and demodulated as NXDN and M17 are,
-// instead of the HR_C7000's own DMR receive; the HR_C7000 engine still transmits. On a DMR channel (not in hotspot
-// mode) while dmr_soft_enabled.
+// instead of the HR_C7000's own DMR receive; voice transmitted in software too, direct and repeater mode (the
+// HR_C7000 engine still sends the APRS data bursts). On a DMR channel (not in hotspot mode) while dmr_soft_enabled.
 #ifndef DMR_SOFT_H
 #define DMR_SOFT_H
 
@@ -36,7 +36,7 @@
 #include <stdint.h>
 
 extern volatile uint32_t dmr_soft_enabled; // 0: the HR_C7000 receives (over the cable: A / B tests)
-// direct mode (Rx == Tx) transmitted in software too (0: the HR_C7000 engine transmits); 50 mW (tests side by side);
+// transmitted in software too, direct and repeater mode (0: the HR_C7000 engine transmits); 50 mW (tests side by side);
 // counters of the last transmission: calls, bursts, AMBE frames encoded, FIFO underruns
 extern volatile uint32_t dmr_soft_tx, dmr_soft_tx_low_power, dmr_soft_tx_stats[4];
 
@@ -50,10 +50,15 @@ bool dmr_soft_data_busy(void);
 bool dmr_soft_data_failed(void);
 void dmr_soft_data_cancel(void);
 bool dmr_soft_running(void);
-void dmr_soft_ptt(bool on);       // the PTT: the recording off, the engine transmits (dmr.c)
+void dmr_soft_ptt(bool on);       // the PTT: the recording off, the transmission (dmr.c)
 bool dmr_soft_transmitting(void); // the PTT held, or the transmission still ending
 bool dmr_soft_has_sync(void);     // a DMR signal's time line followed (scan)
 bool dmr_soft_busy(void);         // a call on the channel now
+// repeater mode: the repeater didn't answer the wake-ups (the PTT pressed again clears it)
+extern volatile bool dmr_soft_wake_failed;
+// repeater mode's timing: our burst's start on the air, the repeater's as received less this (us); counters
+extern volatile int32_t dmr_soft_rmo_lead_us;
+extern volatile uint32_t dmr_soft_rmo_stats[6];
 
 // counters, read over the cable
 typedef struct {

@@ -311,7 +311,7 @@ bool dmr_tg_filter(uint32_t tg_or_pc, uint32_t source)
 
 bool dmr_repeater_failed(void)
 {
-    return (HRC7000GetIsWakingState() == WAKING_MODE_FAILED);
+    return (HRC7000GetIsWakingState() == WAKING_MODE_FAILED) || dmr_soft_wake_failed;
 }
 
 bool dmr_aprs_send_position(int32_t latitude_e7, int32_t longitude_e7, uint16_t speed_knots, uint16_t course,

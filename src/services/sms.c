@@ -64,6 +64,8 @@
 #define RX_QUEUE    2
 #define ACK_WAIT_MS 10000 // a TMS acknowledgement waited for this long after the message is out
 #define ACK_SEND_MS 5000  // our acknowledgement tried this long (the channel busy sending)
+#define ACK_DELAY_MS 1000 // ... sent this much after the message: a hotspot (MMDVM_HS duplex) lost or garbled the
+                          // blocks of one sent right after its last data (0 of 3 through; 0.7 s and 1.5 s: all)
 #define REPEAT_MS   120000
 #define ECHO_MS     30000 // our own message heard back (a repeater repeating it) this long after sending it
 
@@ -518,13 +520,13 @@ void sms_tick(void)
         rx_out++;
     }
     TickType_t now = xTaskGetTickCount();
-    if (ack.pending && !dmr_data_busy()) {
+    if (ack.pending && !dmr_data_busy() && ((now - ack.since) >= pdMS_TO_TICKS(ACK_DELAY_MS))) {
         if (dmr_sms_build_ack(&tx, trxDMRID, ack.dst, ack.seq) && dmr_data_send(&tx)) {
             sms_stats[3]++;
             ack.pending = false;
         }
     }
-    if (ack.pending && ((now - ack.since) > pdMS_TO_TICKS(ACK_SEND_MS))) {
+    if (ack.pending && ((now - ack.since) > pdMS_TO_TICKS(ACK_DELAY_MS + ACK_SEND_MS))) {
         ack.pending = false;
     }
     bool busy = (out.mode == SMS_MODE_M17) ? m17_radio_sms_busy() : dmr_data_busy();

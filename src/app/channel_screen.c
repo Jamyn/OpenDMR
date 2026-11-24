@@ -833,7 +833,6 @@ static void draw(void)
     char name[48];
     char freq[24];
     char line[24];
-    char ts_text[8];
     char cc_text[16];
     char detail[24];
     char squelch[24];
@@ -888,11 +887,9 @@ static void draw(void)
     panel.line_icon = ICONS_COUNT;
 
     if (channel.mode == CODEPLUG_MODE_DMR) {
-        snprintf(ts_text, sizeof(ts_text), "TS%d", target.timeslot);
-        snprintf(cc_text, sizeof(cc_text), "CC%d", codeplug_colour_code(&channel));
-        status.item1 = ts_text;
-        status.item1_bold = true;
-        status.item2 = cc_text;
+        // the timeslot and the colour code in the bottom bar (DMR's bandwidth is always 12.5K): the status bar
+        // keeps room for the unread messages, the TG line for a long name
+        snprintf(cc_text, sizeof(cc_text), "TS%d  CC%d", target.timeslot, codeplug_colour_code(&channel));
         if (target.id != 0) {
             bool pc = ((target.id >> 24) == TX_TARGET_PC_FLAG);
 
@@ -905,7 +902,8 @@ static void draw(void)
             }
         }
         bottom.mode = "DMR";
-        bottom.item2 = "12.5K";
+        bottom.item2 = NULL;
+        bottom.right = cc_text; // right aligned
     } else if (channel.mode == CODEPLUG_MODE_P25) {
         // P25: the talk group transmitted to (tx_target_apply()), the NAC on its line (not in the status bar: it is
         // long, and the status bar has the GPS and scan icons too)
@@ -964,8 +962,14 @@ static void draw(void)
         snprintf(squelch, sizeof(squelch), "%s %d%%", text(TEXT_SQUELCH), (sql - SQUELCH_MIN) * SQUELCH_PERCENT_STEP);
         panel.line_right = squelch;
     }
-    if (reversed && (bottom.right == NULL)) {
-        bottom.right = text(TEXT_UI_REVERSED);
+    if (reversed) { // on the right; DMR's timeslot and colour code there: in the middle
+        if (bottom.right == NULL) {
+            bottom.right = text(TEXT_UI_REVERSED);
+        } else { // reversed on the right as always; the timeslot and colour code at a place of their own
+            bottom.item2 = bottom.right;
+            bottom.item2_fixed = true;
+            bottom.right = text(TEXT_UI_REVERSED);
+        }
     }
 
     // The last heard callers, only on DMR and P25 channels and only of that protocol (a P25 entry has no timeslot).

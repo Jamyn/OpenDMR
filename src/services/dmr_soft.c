@@ -140,6 +140,24 @@ typedef struct {
 
 static slot_t slots[2];
 
+/* The data received (ETSI TS 102 361-1 8.2.1.1, 9.2.6 - 9.2.8): per timeslot an unconfirmed packet's header (its CRC
+   with the data header mask), then its Rate 1/2 blocks (12 octets each, the last ending with the message CRC-32: B.3.9),
+   the packet once all are in. Kept in dmr_soft_data_log (over the cable; the messages' layer later). Confirmed
+   packets, Rate 3/4 and 1 blocks: counted only, for now. */
+#define DATA_RX_BLOCKS 32 // a packet of at most this many blocks taken (384 octets)
+#define DATA_LOG       4
+typedef struct {
+    bool active;
+    uint8_t head[12]; // its header (U_HEAD)
+    int blocks, got;
+    TickType_t last;
+    uint8_t data[DATA_RX_BLOCKS * 12];
+} data_rx_t;
+static data_rx_t data_rx[2] OVERLAY_BSS;
+// the last packets: timeslot, CRC-32 right, SAP, group, source, destination, user data length, the first 64 octets
+dmr_soft_data_rx_t dmr_soft_data_log[DATA_LOG];
+volatile uint32_t dmr_soft_data_log_n;
+
 // repeater mode: its last burst with a BS sync (dmr_burst_t.at, the timeslot), its run of them, our colour code seen
 static struct {
     bool any, cc_seen;
@@ -259,6 +277,88 @@ static void voice(const uint8_t b[DMR_BURST_BYTES])
     }
 }
 
+/* ---- data received ---- */
+
+static void data_packet(int ts, data_rx_t *d)
+{
+    int len = d->blocks * 12 - 4;          // user data and pad octets, then the CRC-32
+    int pad = ((d->head[0] & 0x10) ? 16 : 0) | (d->head[1] & 0x0F);
+    const uint8_t *c = &d->data[len];
+    uint32_t got = (uint32_t)c[0] | ((uint32_t)c[1] << 8) | ((uint32_t)c[2] << 16) | ((uint32_t)c[3] << 24);
+    bool ok = (dmr_crc32(d->data, len) == got) && (pad <= len);
+    if (ok) {
+        dmr_soft_stats.data_packets++;
+    } else {
+        dmr_soft_stats.data_crc_bad++;
+    }
+    dmr_soft_data_rx_t *e = &dmr_soft_data_log[dmr_soft_data_log_n % DATA_LOG];
+    memset(e, 0, sizeof(*e));
+    e->ts = (uint8_t)ts;
+    e->crc_ok = ok;
+    e->sap = d->head[1] >> 4;
+    e->group = (d->head[0] & 0x80) != 0;
+    e->dst = ((uint32_t)d->head[2] << 16) | ((uint32_t)d->head[3] << 8) | d->head[4];
+    e->src = ((uint32_t)d->head[5] << 16) | ((uint32_t)d->head[6] << 8) | d->head[7];
+    e->length = (uint16_t)(ok ? (len - pad) : len);
+    memcpy(e->data, d->data, (size_t)((e->length < (int)sizeof(e->data)) ? e->length : (int)sizeof(e->data)));
+    dmr_soft_data_log_n++;
+}
+
+// a data burst of timeslot ts (its data type dt): a CSBK, a data header, a data block
+static void data_burst(int ts, uint8_t dt, const dmr_burst_t *b)
+{
+    data_rx_t *d = &data_rx[ts];
+    uint8_t info[12];
+    if (d->active && ((xTaskGetTickCount() - d->last) > pdMS_TO_TICKS(LOST_TIMEOUT))) {
+        d->active = false; // its blocks stopped coming
+        dmr_soft_stats.data_lost++;
+    }
+    if ((dt == DMR_DT_RATE_34) || (dt == DMR_DT_RATE_1)) {
+        dmr_soft_stats.data_other++;
+        d->active = false;
+        return;
+    }
+    if (!dmr_bptc196(b->bits, info)) {
+        dmr_soft_stats.data_fec_bad++;
+        return;
+    }
+    if (dt == DMR_DT_CSBK) {
+        if (dmr_crc_ccitt_check(info, DMR_MASK_CSBK)) {
+            dmr_soft_stats.csbks++;
+        }
+        return;
+    }
+    if (dt == DMR_DT_DATA_HEADER) {
+        d->active = false;
+        if (!dmr_crc_ccitt_check(info, DMR_MASK_DATA_HEADER)) {
+            dmr_soft_stats.data_fec_bad++;
+            return;
+        }
+        dmr_soft_stats.data_headers++;
+        int blocks = info[8] & 0x7F;
+        if (((info[0] & 0x0F) != 0x02) || (blocks == 0) || (blocks > DATA_RX_BLOCKS)) {
+            dmr_soft_stats.data_other++; // not an unconfirmed packet we take
+            return;
+        }
+        memcpy(d->head, info, sizeof(d->head));
+        d->blocks = blocks;
+        d->got = 0;
+        d->active = true;
+        d->last = xTaskGetTickCount();
+        return;
+    }
+    // a Rate 1/2 block
+    if (!d->active) {
+        return;
+    }
+    memcpy(&d->data[d->got * 12], info, 12);
+    d->last = xTaskGetTickCount();
+    if (++d->got == d->blocks) {
+        d->active = false;
+        data_packet(ts, d);
+    }
+}
+
 /* ---- the bursts ---- */
 
 static bool cc_ok(uint8_t cc)
@@ -335,7 +435,11 @@ static void on_burst(void *ctx, const dmr_burst_t *b)
         if (!dmr_slot_type(b->bits, &cc, &dt) || !cc_ok(cc)) {
             return;
         }
-        if ((dt == DMR_DT_VOICE_LC_HEADER) && dmr_bptc196(b->bits, lc) && dmr_full_lc_check(lc, DMR_MASK_VOICE_LC_HEADER)) {
+        if ((dt == DMR_DT_CSBK) || (dt == DMR_DT_DATA_HEADER) || (dt == DMR_DT_RATE_12) || (dt == DMR_DT_RATE_34) ||
+            (dt == DMR_DT_RATE_1)) {
+            data_burst(ts, dt, b);
+        } else if ((dt == DMR_DT_VOICE_LC_HEADER) && dmr_bptc196(b->bits, lc) &&
+                   dmr_full_lc_check(lc, DMR_MASK_VOICE_LC_HEADER)) {
             dmr_soft_stats.headers++;
             p25_ev_log(42, (uint16_t)ts); // the delay log (p25_radio.c): a voice LC header received
             call_lc(ts, lc);
@@ -425,6 +529,7 @@ static void rx_init(void)
     burst_n = 0;
     phase = 0;
     memset(&dl, 0, sizeof(dl));
+    memset(data_rx, 0, sizeof(data_rx));
     vocoderReset();
 }
 
@@ -712,6 +817,26 @@ static bool tx_ready(void)
 // The PTT held: the recording and the playback are off (afrx.c). In software: direct mode; repeater mode on the
 // repeater's time line, or its wake-up (then receiving again, tx_ready()); dmr_soft_tx 0: the engine transmits from
 // its receive state from scratch, until the PTT is released and its transmission (a repeater's hang time) is over
+// Repeater mode: true, the transmission planned on the repeater's time line (*reset_at); false: a wake-up sent (then
+// receiving until tx_ready()), or the wake-ups given up (dmr_soft_wake_failed)
+static bool rmo_access(uint32_t *reset_at)
+{
+    if (downlink_ok() && rmo_plan(reset_at)) {
+        dmr_soft_rmo_stats[1]++;
+        return true;
+    }
+    if (wake.sent > codeplugGetRepeaterWakeAttempts()) {
+        dmr_soft_wake_failed = true; // the TX screen ends it (dmr_repeater_failed())
+        dmr_soft_rmo_stats[2]++;
+        return false;
+    }
+    send_wake();
+    wake.sent++;
+    wake.at = xTaskGetTickCount();
+    dmr_soft_rmo_stats[0]++;
+    return false;
+}
+
 static void transmit(void)
 {
     if (dmr_soft_tx && !rmo()) {
@@ -720,20 +845,9 @@ static void transmit(void)
     }
     if (dmr_soft_tx) {
         uint32_t reset_at;
-        if (downlink_ok() && rmo_plan(&reset_at)) {
-            dmr_soft_rmo_stats[1]++;
+        if (rmo_access(&reset_at)) {
             soft_transmit(true, reset_at);
-            return;
         }
-        if (wake.sent > codeplugGetRepeaterWakeAttempts()) {
-            dmr_soft_wake_failed = true; // the TX screen ends it (dmr_repeater_failed())
-            dmr_soft_rmo_stats[2]++;
-            return;
-        }
-        send_wake();
-        wake.sent++;
-        wake.at = xTaskGetTickCount();
-        dmr_soft_rmo_stats[0]++;
         return;
     }
     dmr_engine_resume();
@@ -749,9 +863,11 @@ static void transmit(void)
 }
 
 /* ---- data (APRS over DMR) ----
-   The engine sends the data bursts (HRC7000SendDataBursts()), as it does the repeater mode's voice: the recording
-   off meanwhile (afrx.c), the engine resumed, then back to receiving in software. Sent with the recording on, the engine
-   standing aside, they never went out (#107: 0.7.0's DMR APRS beacons, 2026-11-21). */
+   In software as the voice: each burst's 10 octets (a CSBK, a data header) with their CRC-CCITT and the data type's
+   mask, or a data block's 12 as they are, through the BPTC (196,96) with the MS data sync, all into the FIFO (12 pairs
+   of blocks fit), the transmitter keyed at once in direct mode, on the repeater's time line in repeater mode (woken
+   first: data() asked again until it answers). dmr_soft_tx 0: the engine sends them (HRC7000SendDataBursts()), the
+   recording off meanwhile (afrx.c), the engine resumed, then back to receiving in software. */
 #define DATA_MS 5000 // the bursts sent at most (a repeater woken first)
 
 static const afrx_ops_t ops;
@@ -762,8 +878,76 @@ static struct {
 } data_req;
 static volatile bool data_pending, data_failed, data_cancel;
 
+// the bursts asked, keyed at once (direct mode) or at reset_at (repeater mode); false: not sent
+static bool soft_data(bool rmo, uint32_t reset_at)
+{
+    uint8_t cc = trxGetDMRColourCode();
+    uint8_t info[12];
+    p25_phy_tx_reset();
+    modem_set_mod_scale(MODEM_MOD_SCALE_ONE);
+    tx_underruns_seen = 0;
+    for (int i = 0; i < data_req.count; i++) {
+        uint8_t dt = data_req.types[i];
+        if (dt == DMR_DT_CSBK) {
+            dmr_crc_ccitt_make(data_req.payloads[i], DMR_MASK_CSBK, info);
+        } else if (dt == DMR_DT_DATA_HEADER) {
+            dmr_crc_ccitt_make(data_req.payloads[i], DMR_MASK_DATA_HEADER, info);
+        } else {
+            memcpy(info, data_req.payloads[i], 12);
+        }
+        dmr_burst_data(txm.b, info, cc, dt, DMR_SYNC_MS_DATA);
+        put_burst(txm.b);
+    }
+    bool later = rmo && dmr_soft_tx_gate && (dmr_soft_rmo_pa_us > 0);
+    radio_phy_tx_pa_later(later);
+    int begun = rmo ? p25_phy_tx_begin_at(dmr_soft_tx_low_power != 0, reset_at)
+                    : p25_phy_tx_begin(dmr_soft_tx_low_power != 0);
+    radio_phy_tx_pa_later(false);
+    if (begun != 0) {
+        modem_set_mod_scale(MODEM_MOD_SCALE_ONE);
+        return false;
+    }
+    if (dmr_soft_tx_gate) {
+        radio_phy_tx_gate_at(later ? (p25_phy_tx_reset_us + (uint32_t)dmr_soft_rmo_pa_us) : 0);
+    }
+    p25_phy_tx_pad();
+    TickType_t t0 = xTaskGetTickCount();
+    while ((p25_phy_tx_level() >= P25_PHY_BLOCK_BYTES * 4) && !data_cancel &&
+           ((xTaskGetTickCount() - t0) < pdMS_TO_TICKS(DATA_MS))) {
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
+    bool sent = (p25_phy_tx_level() < P25_PHY_BLOCK_BYTES * 4);
+    vTaskDelay(pdMS_TO_TICKS(60)); // the last blocks out of the modem
+    radio_phy_tx_gate(false);
+    p25_phy_tx_end();
+    modem_set_mod_scale(MODEM_MOD_SCALE_ONE);
+    dmr_soft_tx_stats[0]++;
+    return sent;
+}
+
 static void data(void)
 {
+    if (dmr_soft_tx) {
+        uint32_t reset_at = 0;
+        bool r = rmo();
+        if (data_cancel) {
+            data_failed = true;
+            data_pending = false;
+            return;
+        }
+        if (r && !rmo_access(&reset_at)) {
+            if (dmr_soft_wake_failed) { // no repeater
+                data_failed = true;
+                data_pending = false;
+            } else {
+                afrx_data(); // again once the repeater answers (tx_ready())
+            }
+            return;
+        }
+        data_failed = !soft_data(r, reset_at);
+        data_pending = false;
+        return;
+    }
     dmr_engine_resume();
     bool ok = HRC7000SendDataBursts(data_req.types, data_req.lengths, (const uint8_t(*)[12])data_req.payloads,
                                     data_req.count);
@@ -798,6 +982,8 @@ bool dmr_soft_send_data(const uint8_t *types, const uint8_t *lengths, const uint
     data_req.count = count;
     data_failed = false;
     data_cancel = false;
+    dmr_soft_wake_failed = false; // repeater mode: woken from scratch
+    wake_reset = true;
     data_pending = true;
     afrx_data();
     return true;

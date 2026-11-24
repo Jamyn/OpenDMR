@@ -27,8 +27,8 @@
  */
 
 // The DMR receiver in software (dmr_soft.c): the FM discriminator recorded and demodulated as NXDN and M17 are,
-// instead of the HR_C7000's own DMR receive; voice transmitted in software too, direct and repeater mode (the
-// HR_C7000 engine still sends the APRS data bursts). On a DMR channel (not in hotspot mode) while dmr_soft_enabled.
+// instead of the HR_C7000's own DMR receive; voice and data (APRS) transmitted in software too, direct and repeater
+// mode; unconfirmed data packets received. On a DMR channel (not in hotspot mode) while dmr_soft_enabled.
 #ifndef DMR_SOFT_H
 #define DMR_SOFT_H
 
@@ -43,8 +43,8 @@ extern volatile uint32_t dmr_soft_tx, dmr_soft_tx_low_power, dmr_soft_tx_stats[4
 bool dmr_soft_wanted(void); // a DMR channel would be received in software now
 void dmr_soft_start(void);
 void dmr_soft_stop(void);
-// APRS over DMR with the software receiver running (dmr.c): the engine sends the bursts (hr_c7000.h), the recording
-// off meanwhile; false: not running (the engine's own way then)
+// APRS over DMR with the software receiver running (dmr.c): the bursts sent in software (direct mode, or the repeater
+// woken first; dmr_soft_tx 0: by the engine); false: not running (the engine's own way then)
 bool dmr_soft_send_data(const uint8_t *types, const uint8_t *lengths, const uint8_t (*payloads)[12], uint8_t count);
 bool dmr_soft_data_busy(void);
 bool dmr_soft_data_failed(void);
@@ -65,7 +65,20 @@ typedef struct {
     uint32_t halves, missed_halves, busy_us_max, bursts, syncs, lost, relocks;
     uint32_t headers, terminators, emb_ok, emb_bad, emb_lcs, voice_bursts, calls, filtered;
     uint32_t pcm_drops, underruns, dec_us_max, other_cc;
+    // data: CSBKs, data headers, packets whole (their CRC-32 right), CRC-32 wrong, FEC / header CRC wrong, blocks
+    // that stopped coming, other kinds (confirmed, Rate 3/4, Rate 1: not taken yet)
+    uint32_t csbks, data_headers, data_packets, data_crc_bad, data_fec_bad, data_lost, data_other;
 } dmr_soft_stats_t;
+
+// the data packets received (unconfirmed, Rate 1/2), the last few (dmr_soft_data_log_n so far)
+typedef struct {
+    uint8_t ts, crc_ok, sap, group;
+    uint32_t src, dst;
+    uint16_t length;   // the user data's octets (the CRC-32 wrong: the blocks' less the CRC)
+    uint8_t data[64];  // the first of them
+} dmr_soft_data_rx_t;
+extern dmr_soft_data_rx_t dmr_soft_data_log[4];
+extern volatile uint32_t dmr_soft_data_log_n;
 extern volatile dmr_soft_stats_t dmr_soft_stats;
 
 #endif

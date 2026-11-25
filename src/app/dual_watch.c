@@ -603,7 +603,8 @@ static void draw_panel(int i, int tx)
         lx = font_draw_text(lx, top + 70, buffer, &font_roboto20, FONT_ALIGN_LEFT,
                             theme_colour(THEME_COLOUR_TEXT_SECOND));
         if (edited_vfo && ((f == 1) == vfo_screen_editing_tx())) {
-            vfo_screen_draw_step_marks(start, top + 70, buffer, &font_roboto20, vfo_screen_step(), f == 1, 6, 4);
+            // one pixel lower than the frequency line's room: clear of its digits
+            vfo_screen_draw_step_marks(start, top + 71, buffer, &font_roboto20, vfo_screen_step(), f == 1, 6, 4);
         }
         lx += 6; // both within the margin: xxx.xxxxx twice
     }

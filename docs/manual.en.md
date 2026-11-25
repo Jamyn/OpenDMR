@@ -324,7 +324,8 @@ While transmitting:
 Two paths watched at once, each **any channel or VFO A / B** (both may be the same). The dual watch is the home
 screen with one more path watched: the **selected path** is the home screen's channel or VFO, and the keys work as there.
 
-- **Switch it on**: Dual Watch, the first item of the channel or VFO menu (menu key). The channel / VFO in use becomes
+- **Switch it on**: Dual Watch, the first item of the channel or VFO menu (menu key): the menu key, or ◀ ▶ / the
+  knob to On and out of the menu. The channel / VFO in use becomes
   the selected path, on top; the other path is the other one of the last time (the first time VFO A, or VFO B when
   VFO A is in use).
 - **Select**: ▲ / ▼ select the upper / lower path, which has the `PTT` badge; the home screen goes to it too.

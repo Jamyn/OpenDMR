@@ -229,6 +229,9 @@ static void change(item_t item, int direction)
         case QM_DISTANCE_SORT:
             settings_set_option(BIT_DISTANCE_SORT, on && !in_all_channels());
             break;
+        case QM_DUAL_WATCH: // shown or gone when the menu closes
+            dual_watch_set(on);
+            return;
         case QM_VFO_AB:
             settings.current_vfo_number = (uint8_t)(on ? 1 : 0);
             break;

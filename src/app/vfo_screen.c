@@ -937,7 +937,8 @@ void vfo_screen_draw_step_marks(int32_t x, int32_t y, const char *frequency, con
         int32_t middle = (start + x + font_text_width(font, part)) / 2;
 
         for (int row = 0; row < rows; row++) {
-            int32_t w = (rows > 1) ? ((row * half) / (rows - 1)) : half;
+            // no one-pixel tip: the top row 3 wide
+            int32_t w = (rows > 1) ? (1 + ((row * (half - 1)) / (rows - 1))) : half;
 
             draw_fill_rect(middle - w, top + row, (2 * w) + 1, 1, (tx ? THEME_COLOUR_TX : THEME_COLOUR_RX));
         }

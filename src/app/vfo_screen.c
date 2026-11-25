@@ -154,6 +154,25 @@ static void vfo_screen_signal(s_meter_data_t *meter)
     meter->open = radio_is_receiving();
 }
 
+bool vfo_screen_draw_entry(int32_t x, int32_t y, const font_t *font)
+{
+    if (!digit_entry_active(&entry)) {
+        return false;
+    }
+    (void)digit_entry_draw_font(&entry, x, y, font);
+    return true;
+}
+
+bool vfo_screen_editing_tx(void)
+{
+    return editing_tx;
+}
+
+bool vfo_screen_typing(void)
+{
+    return digit_entry_active(&entry);
+}
+
 int vfo_screen_current(void)
 {
     return (settings.current_vfo_number == 1) ? 1 : 0;
@@ -603,13 +622,10 @@ static void change_squelch(int direction)
 static void enter(void *arg)
 {
     (void)arg;
-    if (dual_watch_show()) {
-        set_home_mode(true);
-        return; // dual watch on: it is shown over this screen
-    }
     set_home_mode(true);
     green_down = red_down = false;
     held = 0;
+    (void)dual_watch_show(); // dual watch on: shown over this screen, its selected path this VFO
 }
 
 static void leave(void)

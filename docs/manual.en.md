@@ -123,6 +123,7 @@ changes.
 
 | Row | What it does |
 |---|---|
+| Dual Watch | Dual watch on / off (see [8](#8-dual-watch)) |
 | Channel details | All the settings of this channel (below) |
 | Channel --> VFO | Copy this channel into the VFO in use, then go to the VFO |
 | VFO --> Channel | Overwrite this channel with the VFO in use (asks first) |
@@ -132,8 +133,6 @@ changes.
 | TS Filter | On: only the channel's timeslot is heard |
 | Talkaround | On a repeater channel: talk direct on the receive frequency |
 | Dist sort | Channels of the zone in order of distance from you (needs your location) |
-| Dual Watch | Dual watch on / off (see [8](#8-dual-watch)) |
-| Add to dual watch | Put this channel into a dual watch path (the path it replaces is shown on the right) |
 
 ### Channel details
 
@@ -227,6 +226,7 @@ comes the target, `ALL`, with the CAN on the right of its line (e.g. `CAN 0`).
 
 | Row | What it does |
 |---|---|
+| Dual Watch | See [8](#8-dual-watch) |
 | Channel details | All the settings of this VFO (as the channel details) |
 | VFO B / VFO A | The menu key on this row switches VFO |
 | Tx <--> Rx | Swap the frequencies |
@@ -234,7 +234,6 @@ comes the target, `ALL`, with the CAN on the right of its line (e.g. `CAN 0`).
 | Filter, DMR Filter, CC Scan, TS Filter | As in the channel menu |
 | VFO --> New Chan | Save the VFO as a new channel ("New channel N", in All Channels) |
 | Tone scan | Find the CTCSS / DCS tone the other station uses (any key stops on the tone found) |
-| Dual Watch, Add to dual watch | See [8](#8-dual-watch) |
 | Scan low = RX / Scan high = RX | The receive frequency becomes the lower / upper limit of the VFO scan |
 
 ---
@@ -322,19 +321,29 @@ While transmitting:
 
 <img src="manual/en/dual-watch.png" alt="Dual watch">
 
-Two paths watched at once, each **any channel or VFO A / B** (both may be the same).
+Two paths watched at once, each **any channel or VFO A / B** (both may be the same). The dual watch is the home
+screen with one more path watched: the **selected path** is the home screen's channel or VFO, and the keys work as there.
 
-- Switch it on: Dual Watch in the channel or VFO menu. The default paths are VFO A and VFO B; "Add to dual watch" on
-  a channel or VFO puts it in (into the path shown on the right; the next add replaces the other path).
+- **Switch it on**: Dual Watch, the first item of the channel or VFO menu (menu key). The channel / VFO in use becomes
+  the selected path, on top; the other path is the other one of the last time (the first time VFO A, or VFO B when
+  VFO A is in use).
+- **Select**: ▲ / ▼ select the upper / lower path, which has the `PTT` badge; the home screen goes to it too.
+- **Change the selected path** as on the channel / VFO screen: the knob steps the channel or the frequency (on a VFO,
+  SK2 + ▲ ▼ choose receive or transmit; the one changed has its `RX` green or `TX` red); the digits enter a channel
+  number or a frequency; ◀ ▶ talk group or squelch; SK2 + ◀ ▶ power; \*, # and the SK1 / SK2 combinations as there;
+  the back key switches between channel and VFO (held: VFO A ↔ B). To put another channel or VFO in a path, select it
+  and change it there.
+- Both paths the same: both panels shown, the same, one path watched; a change shows on both.
 - The paths are watched in turn; a path with a signal is kept while the signal lasts and a moment after (for the
   answer).
-- Each path: channel number or VFO, mode and power, `PTT` on the right of the transmit path; the name large; the
-  receive and transmit frequencies; the timeslot and talk group, or the tone.
+- Each path: channel number or VFO, mode and power; the name large; the receive and transmit frequencies; the
+  timeslot and talk group, or the tone.
 - A path with a signal: a green bar on its left, its S meter on the last line. A DMR call: the caller's callsign
   replaces the name (its ID when not known), the ID goes top right and the path's name to the left of the header.
-- Transmit: on the path heard last (it has the `PTT` badge); ▲ / ▼ fix the upper / lower path for transmit.
-- Menu key: the main menu; menu key held: the dual watch menu (off, the transmit path). Back key: back to the single
-  watch. Kept over power off.
+- **Transmit**: on the selected path; within 10 s after a signal on the other path, the PTT answers on that path (the
+  `PTT` badge is there then).
+- Menu key: the selected path's menu, Dual Watch (its first item) switches it off; menu key held: the main menu.
+  Starting a scan (SK1 + ▲ ▼) switches it off. Off: back on the selected path's home screen. Kept over power off.
 
 ---
 

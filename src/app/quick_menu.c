@@ -54,6 +54,7 @@
 #include "sound.h"
 #include "channel_details.h"
 #include "quick_menu.h"
+#include "dual_watch.h"
 #include "scan.h"
 
 // Bits of settings.bitfield_options (the main firmware's BIT_x)
@@ -81,7 +82,6 @@ typedef enum {
     QM_TALKAROUND,
     QM_DISTANCE_SORT,
     QM_DUAL_WATCH,
-    QM_DUAL_ADD,
     QM_VFO_AB,
     QM_SWAP,
     QM_RX_TO_TX,
@@ -99,13 +99,13 @@ typedef struct {
 } menu_t;
 
 // The orders of CHANNEL_SCREEN_QUICK_MENU_ITEMS and VFO_SCREEN_QUICK_MENU_ITEMS (DM-32)
-static const uint8_t channel_items[] = {QM_CHANNEL_DETAILS, QM_CHANNEL_TO_VFO, QM_VFO_TO_CHANNEL, QM_FILTER,
-                                        QM_DMR_FILTER,      QM_CC_SCAN,        QM_TS_FILTER,      QM_TALKAROUND,
-                                        QM_DISTANCE_SORT,   QM_DUAL_WATCH,     QM_DUAL_ADD,       QM_LOCKOUT};
-static const uint8_t vfo_items[] = {QM_CHANNEL_DETAILS, QM_VFO_AB,    QM_SWAP,       QM_RX_TO_TX,  QM_TX_TO_RX,
-                                    QM_FILTER,          QM_DMR_FILTER, QM_CC_SCAN,   QM_TS_FILTER, QM_VFO_TO_NEW,
-                                    QM_TONE_SCAN,       QM_DUAL_WATCH, QM_SCAN_LOW,  QM_SCAN_HIGH, QM_DUAL_ADD,
-                                    QM_LOCKOUT};
+// The dual watch first (it is turned off here, the paths are changed on its screen as on the home screens)
+static const uint8_t channel_items[] = {QM_DUAL_WATCH, QM_CHANNEL_DETAILS, QM_CHANNEL_TO_VFO, QM_VFO_TO_CHANNEL,
+                                        QM_FILTER,     QM_DMR_FILTER,      QM_CC_SCAN,        QM_TS_FILTER,
+                                        QM_TALKAROUND, QM_DISTANCE_SORT,   QM_LOCKOUT};
+static const uint8_t vfo_items[] = {QM_DUAL_WATCH, QM_CHANNEL_DETAILS, QM_VFO_AB,    QM_SWAP,       QM_RX_TO_TX,
+                                    QM_TX_TO_RX,   QM_FILTER,          QM_DMR_FILTER, QM_CC_SCAN,   QM_TS_FILTER,
+                                    QM_VFO_TO_NEW, QM_TONE_SCAN,       QM_SCAN_LOW,  QM_SCAN_HIGH, QM_LOCKOUT};
 static const menu_t channel_menu = {channel_items, sizeof(channel_items)};
 static const menu_t vfo_menu = {vfo_items, sizeof(vfo_items)};
 
@@ -114,7 +114,6 @@ static const char *const tone_scan_names[TONE_SCAN_TYPES] = {NULL, "CTCSS", "DCS
 
 static uint8_t tone_scan_type = 0; // kept between the menus, as the main firmware's toneScanCSS
 static bool talkaround = false;
-static int add_target = 1;         // the dual watch path "add" replaces; the next add replaces the other one
 static int ref;                    // channel_details_current_ref() when the menu was opened
 static int confirming = -1;        // the item asking "please confirm", -1: none
 static int opened_vfo;             // the VFO in use when the menu was opened
@@ -179,23 +178,6 @@ static bool load_channel(void)
     return (ref > 0) && codeplug_get_channel(ref, &channel);
 }
 
-// A dual watch path: 0 is the default, VFO A for the first path, VFO B for the second (uiDualWatch.c pathRef())
-static int16_t path_ref(int path)
-{
-    int16_t r = settings.dual_watch_path[path];
-
-    return (r == 0) ? (int16_t)(-1 - path) : r;
-}
-
-static void path_name(int16_t r, char *out, size_t size)
-{
-    if ((r > 0) && codeplug_channel_in_use(r) && codeplug_get_channel(r, &channel)) {
-        codeplug_text_name(channel.name, CODEPLUG_NAME_LENGTH, out, size);
-    } else {
-        snprintf(out, size, "VFO %c", ((r == -2) ? 'B' : 'A'));
-    }
-}
-
 static bool tone_scan_possible(void)
 {
     return vfo_screen_vfo(vfo_screen_current())->mode == CODEPLUG_MODE_FM;
@@ -254,9 +236,6 @@ static void change(item_t item, int direction)
             if (tone_scan_possible() && (on ? (tone_scan_type < (TONE_SCAN_TYPES - 1)) : (tone_scan_type > 0))) {
                 tone_scan_type = (uint8_t)(tone_scan_type + direction);
             }
-            return;
-        case QM_DUAL_ADD:
-            add_target = 1 - add_target;
             return;
         default:
             return;
@@ -386,15 +365,11 @@ static void select_item(item_t item)
             vfo_frequencies(item);
             break;
         case QM_DUAL_WATCH:
-            settings_set_option(BIT_DUAL_WATCH, !(settings.bitfield_options & BIT_DUAL_WATCH));
+            dual_watch_set(!dual_watch_is_on()); // on: the home screen's channel or VFO the selected path
             break;
         case QM_SCAN_LOW:
         case QM_SCAN_HIGH:
             scan_limit(item);
-            break;
-        case QM_DUAL_ADD: // uiDualWatchAddPath(): the channel, or the VFO in use now
-            settings.dual_watch_path[add_target] = (int16_t)channel_details_current_ref();
-            add_target = 1 - add_target;
             break;
         case QM_TONE_SCAN:
             if (tone_scan_possible()) {
@@ -470,7 +445,6 @@ static const char *format_item(item_t item, char *name, size_t name_size, char *
         [QM_TALKAROUND] = TEXT_TALKAROUND,
         [QM_DISTANCE_SORT] = TEXT_DISTANCE_SORT,
         [QM_DUAL_WATCH] = TEXT_DUAL_WATCH,
-        [QM_DUAL_ADD] = TEXT_UI_DW_ADD,
         [QM_VFO_TO_NEW] = TEXT_VFOTONEWCHANNEL,
         [QM_TONE_SCAN] = TEXT_TONE_SCAN,
         [QM_SCAN_LOW] = TEXT_SCAN_LOW,
@@ -522,11 +496,6 @@ static const char *format_item(item_t item, char *name, size_t name_size, char *
             break;
         case QM_DUAL_WATCH:
             value = on_off(settings.bitfield_options & BIT_DUAL_WATCH);
-            break;
-        case QM_DUAL_ADD:
-            // Only the path it replaces: the main firmware's "Replace VFO B" overlaps the name in English
-            path_name(path_ref(add_target), out, size);
-            value = out;
             break;
         case QM_TONE_SCAN:
             value = (!tone_scan_possible() ? text(TEXT_N_A)

@@ -170,8 +170,8 @@ and B): **hold the back key** to switch, or choose in the VFO menu.
 | Squelch (FM, AM, SSB) / talk group (DMR, P25, NXDN) | ▶ ◀ |
 
 Both frequencies are shown large: the receive one with `RX` (green) on its right, the transmit one with `TX` (red).
-The one the keys change is white, and the digit its step changes is underlined (in its colour): a 12.5 or 25 kHz step
-underlines the second decimal, 2.5 – 6.25 kHz the third. The top line shows the VFO and the step itself.
+The one the keys change is white, with a ^ in its colour under each digit its step changes: a 12.5 kHz step marks
+the 2nd to 4th decimals, 25 kHz the 2nd and 3rd, 6.25 kHz the 3rd to 5th, 5 and 10 kHz one digit. The top line shows the VFO and the step itself.
 
 **AM, USB and LSB are receive only** (the RF chip can only transmit FM): the bottom bar shows `Rx Only`, and the PTT
 shows "Switch to FM or DMR". Their squelch is on the signal strength (0 %: always open); it closes after the signal
@@ -332,7 +332,7 @@ screen with one more path watched: the **selected path** is the home screen's ch
   VFO A is in use).
 - **Select**: ▲ / ▼ select the upper / lower path, which has the `PTT` badge; the home screen goes to it too.
 - **Change the selected path** as on the channel / VFO screen: the knob steps the channel or the frequency (on a VFO,
-  SK2 + ▲ ▼ choose receive or transmit; the one changed has its `RX` green or `TX` red); the digits enter a channel
+  SK2 + ▲ ▼ choose receive or transmit; the one changed has a green or red ^ under the digits its step changes, as on the VFO screen); the digits enter a channel
   number or a frequency; ◀ ▶ talk group or squelch; SK2 + ◀ ▶ power; \*, # and the SK1 / SK2 combinations as there;
   the back key switches between channel and VFO (held: VFO A ↔ B). To put another channel or VFO in a path, select it
   and change it there.

@@ -511,35 +511,6 @@ static bool handle(const ui_event_t *ev)
     return false;
 }
 
-// The digit of the VFO's step (the largest place not over it, xxx.xxxxx in 10 Hz units) reversed: on green (RX) or red
-// (TX), the colours of the VFO screen's chips. x, y: where the frequency was drawn
-static void draw_step_digit(int32_t x, int32_t y, const char *frequency, bool tx)
-{
-    unsigned step = vfo_screen_step();
-    unsigned place = 1;
-    int decimals = 5;
-    const char *dot = strchr(frequency, '.');
-    char part[16];
-
-    while (((place * 10) <= step) && (decimals > 1)) {
-        place *= 10;
-        decimals--;
-    }
-    if (!dot) {
-        return;
-    }
-    size_t at = (size_t)(dot - frequency) + (size_t)decimals;
-
-    memcpy(part, frequency, at);
-    part[at] = '\0';
-    int32_t start = x + font_text_width(&font_roboto20, part);
-    char digit[2] = {frequency[at], '\0'};
-    int32_t width = font_text_width(&font_roboto20, digit);
-
-    draw_fill_rect(start - 1, y, width + 2, font_roboto20.line_height, (tx ? THEME_COLOUR_TX : THEME_COLOUR_RX));
-    draw_text(start, y, digit, &font_roboto20, FONT_ALIGN_LEFT, (tx ? THEME_COLOUR_WHITE : THEME_COLOUR_BACKGROUND));
-}
-
 static void draw_panel(int i, int tx)
 {
     const path_t *p = &paths[i];
@@ -615,7 +586,7 @@ static void draw_panel(int i, int tx)
     }
 
     // "RX" and "TX" small, each before its frequency; the selected VFO: in the one the knob and the digits change, the
-    // digit of its step reversed, green (RX) or red (TX) (SK2 + UP / DOWN choose it)
+    // digits its step changes marked (^), green (RX) or red (TX) (SK2 + UP / DOWN choose it)
     bool edited_vfo = (i == selected()) && p->vfo && vfo_screen_is_home();
 
     lx = x;
@@ -632,7 +603,7 @@ static void draw_panel(int i, int tx)
         lx = font_draw_text(lx, top + 70, buffer, &font_roboto20, FONT_ALIGN_LEFT,
                             theme_colour(THEME_COLOUR_TEXT_SECOND));
         if (edited_vfo && ((f == 1) == vfo_screen_editing_tx())) {
-            draw_step_digit(start, top + 70, buffer, f == 1);
+            vfo_screen_draw_step_marks(start, top + 70, buffer, &font_roboto20, vfo_screen_step(), f == 1, 4);
         }
         lx += 6; // both within the margin: xxx.xxxxx twice
     }

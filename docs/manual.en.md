@@ -342,8 +342,10 @@ screen with one more path watched: the **selected path** is the home screen's ch
   replaces the name (its ID when not known), the ID goes top right and the path's name to the left of the header.
 - **Transmit**: on the selected path; within 10 s after a signal on the other path, the PTT answers on that path (the
   `PTT` badge is there then).
-- Menu key: the selected path's menu, Dual Watch (its first item) switches it off; menu key held: the main menu.
-  Starting a scan (SK1 + ▲ ▼) switches it off. Off: back on the selected path's home screen. Kept over power off.
+- Bottom bar: Menu on the left; on the right where the back key goes (VFO or Channel), Close while SK2 is held.
+- **Switch it off**: **SK2 + back key**, or Dual Watch (the first item) in the selected path's menu (menu key);
+  starting a scan (SK1 + ▲ ▼) switches it off too. Off: back on the selected path's home screen. Menu key held: the
+  main menu. Kept over power off.
 
 ---
 

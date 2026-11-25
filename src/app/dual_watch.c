@@ -643,7 +643,10 @@ static void draw(void)
     if (typing) {
         bottom_bar_draw_soft_keys(text(TEXT_UI_OK), text(TEXT_UI_DELETE)); // as on the home screens
     } else {
-        bottom_bar_draw_soft_keys(text(TEXT_MENU), text(sk2_held ? TEXT_UI_CLOSE : TEXT_UI_BACK));
+        // The right key: where it goes (the selected path to the VFO or back to its channel); SK2 held: Close
+        const char *right = sk2_held ? text(TEXT_UI_CLOSE) : (vfo_screen_is_home() ? text(TEXT_APRS_CHANNEL) : "VFO");
+
+        bottom_bar_draw_soft_keys(text(TEXT_MENU), right);
     }
 }
 

@@ -604,7 +604,7 @@ static void draw_panel(int i, int tx)
                             theme_colour(THEME_COLOUR_TEXT_SECOND));
         if (edited_vfo && ((f == 1) == vfo_screen_editing_tx())) {
             // one pixel lower than the frequency line's room: clear of its digits
-            vfo_screen_draw_step_marks(start, top + 71, buffer, &font_roboto20, vfo_screen_step(), f == 1, 6, 4);
+            vfo_screen_draw_step_marks(start, top + 71, buffer, &font_roboto20, vfo_screen_step(), f == 1, 5);
         }
         lx += 6; // both within the margin: xxx.xxxxx twice
     }

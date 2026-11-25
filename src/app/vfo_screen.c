@@ -899,10 +899,10 @@ static const char *power_text(const codeplug_channel_t *v)
                : text(TEXT_RX_ONLY);
 }
 
-// The digits a step changes, a ^ under each (rows high, 2 x half + 1 wide at its base; green RX, red TX): from the largest place of the step to its
+// The digits a step changes, a ^ under each (rows high, its rows 1, 3, 5 ... pixels wide; green RX, red TX): from the largest place of the step to its
 // last digit that is not 0 (xxx.xxxxx in 10 Hz units: 12.5 kHz three digits, 25 kHz two, 6.25 kHz three)
 void vfo_screen_draw_step_marks(int32_t x, int32_t y, const char *frequency, const font_t *font, unsigned step, bool tx,
-                                int rows, int half)
+                                int rows)
 {
     unsigned high = 1; // the largest place not over the step
     unsigned low = 1;  // the last place of the step that is not 0
@@ -937,10 +937,7 @@ void vfo_screen_draw_step_marks(int32_t x, int32_t y, const char *frequency, con
         int32_t middle = (start + x + font_text_width(font, part)) / 2;
 
         for (int row = 0; row < rows; row++) {
-            // no one-pixel tip: the top row 3 wide
-            int32_t w = (rows > 1) ? (1 + ((row * (half - 1)) / (rows - 1))) : half;
-
-            draw_fill_rect(middle - w, top + row, (2 * w) + 1, 1, (tx ? THEME_COLOUR_TX : THEME_COLOUR_RX));
+            draw_fill_rect(middle - row, top + row, (2 * row) + 1, 1, (tx ? THEME_COLOUR_TX : THEME_COLOUR_RX));
         }
     }
 }
@@ -974,7 +971,7 @@ static void draw_frequency(int32_t y, bool is_tx, uint32_t frequency, unsigned s
 
     // The one the keys and the knob change: the digits of its step marked
     if (selected) {
-        vfo_screen_draw_step_marks(x, y, buffer, font, step, is_tx, 8, 6);
+        vfo_screen_draw_step_marks(x, y, buffer, font, step, is_tx, 7);
     }
 }
 

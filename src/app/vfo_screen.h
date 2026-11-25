@@ -59,6 +59,7 @@ void vfo_screen_tone_scan(int type); // the quick menu: the receive tone scanned
 // The dual watch: a frequency being typed drawn at x, y in font (false: none); typed
 bool vfo_screen_draw_entry(int32_t x, int32_t y, const font_t *font);
 bool vfo_screen_typing(void); // a frequency being typed
+unsigned vfo_screen_step(void); // the step of the VFO in use, 10 Hz units
 bool vfo_screen_editing_tx(void); // the knob and the keys change the TX frequency (SK2 + UP / DOWN)
 
 #endif

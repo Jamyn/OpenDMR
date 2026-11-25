@@ -229,6 +229,11 @@ static codeplug_channel_t *vfo(void)
     return vfo_screen_vfo(vfo_screen_current());
 }
 
+unsigned vfo_screen_step(void)
+{
+    return step_of(vfo());
+}
+
 static void compute_radio_channel(void)
 {
     memcpy(&radio_ch, vfo(), sizeof(radio_ch)); // with the VFO's own power (0: the radio's), as vfo_power() shows

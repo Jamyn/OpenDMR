@@ -30,7 +30,8 @@
  * OpenDMR, screen: the dual watch (dual_watch.h). After OpenDM32 user_interface/uiDualWatch.c.
  *
  * Two paths, each any channel or VFO A / B (settings.dual_watch_path: a channel number, -1 VFO A, -2 VFO B; 0 is VFO A
- * for the first path, VFO B for the second), the same one twice allowed (both panels shown, one path watched). Watched in turn, a dwell on
+ * for the first path, VFO B for the second), the same one twice allowed (both panels shown, one path watched).
+ * Watched in turn, a dwell on
  * each; a carrier (FM) or timeslot sync (DMR) is checked for audio, then it stays on that path while the signal lasts
  * and DW_HANG_MS after it (the answer).
  *
@@ -510,6 +511,35 @@ static bool handle(const ui_event_t *ev)
     return false;
 }
 
+// The digit of the VFO's step (the largest place not over it, xxx.xxxxx in 10 Hz units) reversed: on green (RX) or red
+// (TX), the colours of the VFO screen's chips. x, y: where the frequency was drawn
+static void draw_step_digit(int32_t x, int32_t y, const char *frequency, bool tx)
+{
+    unsigned step = vfo_screen_step();
+    unsigned place = 1;
+    int decimals = 5;
+    const char *dot = strchr(frequency, '.');
+    char part[16];
+
+    while (((place * 10) <= step) && (decimals > 1)) {
+        place *= 10;
+        decimals--;
+    }
+    if (!dot) {
+        return;
+    }
+    size_t at = (size_t)(dot - frequency) + (size_t)decimals;
+
+    memcpy(part, frequency, at);
+    part[at] = '\0';
+    int32_t start = x + font_text_width(&font_roboto20, part);
+    char digit[2] = {frequency[at], '\0'};
+    int32_t width = font_text_width(&font_roboto20, digit);
+
+    draw_fill_rect(start - 1, y, width + 2, font_roboto20.line_height, (tx ? THEME_COLOUR_TX : THEME_COLOUR_RX));
+    draw_text(start, y, digit, &font_roboto20, FONT_ALIGN_LEFT, (tx ? THEME_COLOUR_WHITE : THEME_COLOUR_BACKGROUND));
+}
+
 static void draw_panel(int i, int tx)
 {
     const path_t *p = &paths[i];
@@ -584,26 +614,27 @@ static void draw_panel(int i, int tx)
         draw_text(x, top + 32, (caller ? who : p->name), &font_roboto32_bold, FONT_ALIGN_LEFT, THEME_COLOUR_TEXT);
     }
 
-    // "RX" and "TX" small, each before its frequency; the selected VFO: the one the knob changes in the text colour,
-    // its label green (RX) or red (TX) as the VFO screen's chips, the other grey
+    // "RX" and "TX" small, each before its frequency; the selected VFO: in the one the knob and the digits change, the
+    // digit of its step reversed, green (RX) or red (TX) (SK2 + UP / DOWN choose it)
     bool edited_vfo = (i == selected()) && p->vfo && vfo_screen_is_home();
 
     lx = x;
     for (int f = 0; f < 2; f++) {
         uint32_t frequency = f ? ch->tx_freq : ch->rx_freq;
-        bool edited = (f == 1) == vfo_screen_editing_tx();
-        theme_colour_t colour = !edited_vfo ? THEME_COLOUR_TEXT_SECOND
-                                            : (edited ? THEME_COLOUR_TEXT : THEME_COLOUR_TEXT_LABEL);
+        int32_t start;
 
         lx = font_draw_text(lx, top + 70 + (font_roboto20.ascent - font_roboto14.ascent), text(f ? TEXT_UI_TX : TEXT_UI_RX),
-                            &font_roboto14, FONT_ALIGN_LEFT,
-                            theme_colour((edited_vfo && edited) ? (f ? THEME_COLOUR_TX : THEME_COLOUR_RX)
-                                                                : THEME_COLOUR_TEXT_LABEL)) +
+                            &font_roboto14, FONT_ALIGN_LEFT, theme_colour(THEME_COLOUR_TEXT_LABEL)) +
              2;
         snprintf(buffer, sizeof(buffer), "%lu.%05lu", (unsigned long)(frequency / 100000),
                  (unsigned long)(frequency % 100000));
-        lx = font_draw_text(lx, top + 70, buffer, &font_roboto20, FONT_ALIGN_LEFT, theme_colour(colour)) +
-             6; // both within the margin: xxx.xxxxx twice
+        start = lx;
+        lx = font_draw_text(lx, top + 70, buffer, &font_roboto20, FONT_ALIGN_LEFT,
+                            theme_colour(THEME_COLOUR_TEXT_SECOND));
+        if (edited_vfo && ((f == 1) == vfo_screen_editing_tx())) {
+            draw_step_digit(start, top + 70, buffer, f == 1);
+        }
+        lx += 6; // both within the margin: xxx.xxxxx twice
     }
 
     // Receiving: the S meter; else the timeslot and TG, or the tone

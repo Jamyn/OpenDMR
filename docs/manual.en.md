@@ -118,8 +118,9 @@ The radio starts in channel mode (in the VFO when it was left there).
 
 <img src="manual/en/channel-menu.png" alt="Channel quick menu"> <img src="manual/en/channel-menu-2.png" alt="Channel quick menu 2">
 
-▲ ▼ choose a row, ◀ ▶ change its value, the menu key applies it and closes the menu, the back key closes it without
-changes.
+▲ ▼ choose a row, ◀ ▶ or the knob change its value (at once, to be heard); the menu key is OK: keeps the changes
+(or does the row's action) and closes the menu; the back key is Cancel: puts back the values of when the menu was
+opened and closes it. The VFO quick menu works the same.
 
 | Row | What it does |
 |---|---|
@@ -228,7 +229,7 @@ comes the target, `ALL`, with the CAN on the right of its line (e.g. `CAN 0`).
 |---|---|
 | Dual Watch | See [8](#8-dual-watch) |
 | Channel details | All the settings of this VFO (as the channel details) |
-| VFO B / VFO A | The menu key on this row switches VFO |
+| VFO B / VFO A | ◀ ▶ or the knob switch VFO |
 | Tx <--> Rx | Swap the frequencies |
 | Rx --> Tx / Tx --> Rx | Copy the receive frequency to transmit / the other way |
 | Filter, DMR Filter, CC Scan, TS Filter | As in the channel menu |
@@ -324,8 +325,8 @@ While transmitting:
 Two paths watched at once, each **any channel or VFO A / B** (both may be the same). The dual watch is the home
 screen with one more path watched: the **selected path** is the home screen's channel or VFO, and the keys work as there.
 
-- **Switch it on**: Dual Watch, the first item of the channel or VFO menu (menu key): the menu key, or ◀ ▶ / the
-  knob to On and out of the menu. The channel / VFO in use becomes
+- **Switch it on**: Dual Watch, the first item of the channel or VFO menu (menu key): ◀ ▶ or the knob to On,
+  then the menu key (OK). The channel / VFO in use becomes
   the selected path, on top; the other path is the other one of the last time (the first time VFO A, or VFO B when
   VFO A is in use).
 - **Select**: ▲ / ▼ select the upper / lower path, which has the `PTT` badge; the home screen goes to it too.

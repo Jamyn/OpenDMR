@@ -116,7 +116,19 @@ static uint8_t tone_scan_type = 0; // kept between the menus, as the main firmwa
 static bool talkaround = false;
 static int ref;                    // channel_details_current_ref() when the menu was opened
 static int confirming = -1;        // the item asking "please confirm", -1: none
-static int opened_vfo;             // the VFO in use when the menu was opened
+// OK keeps what was changed (the values change at once, to be heard), Cancel (the right key) puts back the values of
+// when the menu was opened. The dual watch only on OK: it shows when the menu closes anyway
+static struct {
+    uint8_t analog_filter_level;
+    uint8_t dmr_destination_filter;
+    uint8_t dmr_cc_ts_filter;
+    uint8_t current_vfo_number;
+    bool distance_sort;
+    bool talkaround;
+    uint8_t tone_scan_type;
+    lockout_t lockout;
+} before;
+static bool dual_watch_wanted; // the dual watch as the menu shows it
 static codeplug_channel_t channel; // not on the UI task stack
 
 bool quick_menu_talkaround(void)
@@ -144,8 +156,16 @@ static const ui_screen_t quick_menu_screen;
 static void open(const menu_t *m)
 {
     ref = channel_details_current_ref();
-    opened_vfo = vfo_screen_current();
     confirming = -1;
+    before.analog_filter_level = settings.analog_filter_level;
+    before.dmr_destination_filter = settings.dmr_destination_filter;
+    before.dmr_cc_ts_filter = settings.dmr_cc_ts_filter;
+    before.current_vfo_number = settings.current_vfo_number;
+    before.distance_sort = (settings.bitfield_options & BIT_DISTANCE_SORT) != 0;
+    before.talkaround = talkaround;
+    before.tone_scan_type = tone_scan_type;
+    before.lockout = lockouts_current();
+    dual_watch_wanted = dual_watch_is_on();
     shown_vfo = (m == &vfo_menu);
     shown.count = 0;
     for (int i = 0; (i < m->count) && (shown.count < sizeof(shown_items)); i++) {
@@ -229,8 +249,8 @@ static void change(item_t item, int direction)
         case QM_DISTANCE_SORT:
             settings_set_option(BIT_DISTANCE_SORT, on && !in_all_channels());
             break;
-        case QM_DUAL_WATCH: // shown or gone when the menu closes
-            dual_watch_set(on);
+        case QM_DUAL_WATCH: // on OK
+            dual_watch_wanted = on;
             return;
         case QM_VFO_AB:
             settings.current_vfo_number = (uint8_t)(on ? 1 : 0);
@@ -332,6 +352,23 @@ static void vfo_to_new_channel(void)
 }
 
 // The left key on an item; the menu is left after it
+// Cancel: the values of when the menu was opened (the lockout written back, it was written at once)
+static void put_back(void)
+{
+    settings.analog_filter_level = before.analog_filter_level;
+    settings.dmr_destination_filter = before.dmr_destination_filter;
+    settings.dmr_cc_ts_filter = before.dmr_cc_ts_filter;
+    settings.current_vfo_number = before.current_vfo_number;
+    settings_set_option(BIT_DISTANCE_SORT, before.distance_sort);
+    talkaround = before.talkaround;
+    tone_scan_type = before.tone_scan_type;
+    if (lockouts_current() != before.lockout) {
+        (void)lockouts_set_current(before.lockout);
+    }
+    dual_watch_wanted = dual_watch_is_on();
+    settings_changed();
+}
+
 static void select_item(item_t item)
 {
     if (((item == QM_VFO_TO_CHANNEL) || (item == QM_VFO_TO_NEW)) && (confirming < 0)) {
@@ -340,10 +377,8 @@ static void select_item(item_t item)
     }
     confirming = -1;
 
-    // OK on the VFO line goes to the other VFO when it was not changed (no orange button on the DM-32)
-    if ((item == QM_VFO_AB) && (vfo_screen_current() == opened_vfo)) {
-        settings.current_vfo_number = (uint8_t)(1 - opened_vfo);
-        settings_changed();
+    if (dual_watch_wanted != dual_watch_is_on()) {
+        dual_watch_set(dual_watch_wanted); // on: the home screen's channel or VFO the selected path
     }
 
     switch (item) {
@@ -366,9 +401,6 @@ static void select_item(item_t item)
         case QM_RX_TO_TX:
         case QM_TX_TO_RX:
             vfo_frequencies(item);
-            break;
-        case QM_DUAL_WATCH:
-            dual_watch_set(!dual_watch_is_on()); // on: the home screen's channel or VFO the selected path
             break;
         case QM_SCAN_LOW:
         case QM_SCAN_HIGH:
@@ -424,6 +456,11 @@ static bool handle(const ui_event_t *ev)
     if ((ev->type == UI_EVENT_KEY_PRESS) && (ev->key == UI_KEY_GREEN)) { // the release of the long press: nothing
         select_item(item);
         return true;
+    }
+    // Cancel: the right key (held: home too) puts the values back first
+    if ((ev->key == UI_KEY_RED) &&
+        ((ev->type == UI_EVENT_KEY_LONG) || ((ev->type == UI_EVENT_KEY_RELEASE) && !ev->long_press))) {
+        put_back();
     }
     list_handle_back(ev);
     return false;
@@ -498,7 +535,7 @@ static const char *format_item(item_t item, char *name, size_t name_size, char *
             value = (in_all_channels() ? text(TEXT_N_A) : on_off(settings.bitfield_options & BIT_DISTANCE_SORT));
             break;
         case QM_DUAL_WATCH:
-            value = on_off(settings.bitfield_options & BIT_DUAL_WATCH);
+            value = on_off(dual_watch_wanted);
             break;
         case QM_TONE_SCAN:
             value = (!tone_scan_possible() ? text(TEXT_N_A)
@@ -558,7 +595,7 @@ static void draw(void)
         list_view_draw_row(row, &data);
     }
 
-    bottom_bar_draw_soft_keys(text(TEXT_UI_OK), text(TEXT_UI_BACK)); // the left key applies or does it, then closes
+    bottom_bar_draw_soft_keys(text(TEXT_UI_OK), text(TEXT_UI_CANCEL)); // keeps the changes (or does it) / puts them back
 }
 
 static void leave(void)

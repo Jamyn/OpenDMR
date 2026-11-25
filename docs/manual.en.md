@@ -62,6 +62,7 @@ All of these can be changed in Options → Key settings (see [12](#12-lock-quick
 | SK2 + ▲ / ▼ | Zone + / − (channel mode); which frequency ▲ ▼ and the knob change, RX or TX (VFO) | Same |
 | SK2 alone | Call back the talk group just heard | — |
 | SK1 alone | FM broadcast radio | Same |
+| SK1 held alone | Lock the keypad (SK1 + * unlocks) | Same |
 | SK1 + ▲ / ▼ | Scan up / down | Same |
 | SK1 + 1 | APRS on / off | Same |
 | SK1 + 3 | Send an APRS beacon now | Same |
@@ -661,8 +662,9 @@ Once the stock sector is back (a backup written back, for example), it is used a
 ### Keypad lock
 
 - In the main menu, **\*** locks the keypad, **#** locks the PTT (again: unlocks the PTT); the radio goes home.
-- On a main screen, **SK2 held alone** (about half a second, then released) locks the keypad too; Key settings →
-  Lock moves it to other keys. Held with another key (SK2 + ▲ ...) it doesn't lock.
+- On a main screen, **SK1 held alone** (about half a second, then released) locks the keypad too; Key settings →
+  Lock moves it to other keys. Held with another key (SK1 + ▲ ...) it doesn't lock. SK2 held is a modifier (Delete
+  in the messages, Close in the dual watch) and doesn't lock.
 - While locked, a key shows the lock page for a moment; **SK1 + \*** unlocks (SK2 + \* can't be pressed on the
   DM-32: a held SK2 hides the keys 1, 4, 7, \*). With only the keypad locked the PTT still transmits.
 - General options → Auto lock: locks the keypad and the PTT after a time without use.

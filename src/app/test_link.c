@@ -51,6 +51,7 @@
 #include "codeplug.h"
 #include "codeplug_text.h"
 #include "radio.h"
+#include "fd6818.h"
 #include "tx_target.h"
 #include "radio_hooks.h"
 #include "settings.h"
@@ -223,6 +224,7 @@ static uint32_t state(char *text, uint32_t size)
     put(&o, "noise", "%u", (unsigned)radio_noise());       // FD6818 0x65, the last reading
     put(&o, "lockouts", "%u,%u,%d", (unsigned)scan_skipped_channels.count, (unsigned)scan_skipped_frequencies.count,
         scan_saved_count());
+    put(&o, "rf_chip", "%04x", (unsigned)fd6818_chip_id()); // 4819 FD6818, 4829 FD6818B
     put(&o, "aprs_via", "%u", (unsigned)extra_options_aprs_via());
     put(&o, "aprs_gateway", "%u", (unsigned)extra_options_aprs_dmr_gateway());
     uint32_t flags;

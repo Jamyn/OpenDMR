@@ -27,7 +27,7 @@
  */
 
 /*
- * OpenDMR, driver: the FD6818B RF transceiver. After OpenDM32 hardware/AT1846S.c (soft SPI, the
+ * OpenDMR, driver: the FD6818 / FD6818B RF transceiver. After OpenDM32 hardware/AT1846S.c (soft SPI, the
  * tables, DCS, CTCSS) and hardware/radioHardwareInterface.c (frequency, receive, transmit), DM32 branches.
  *
  * The soft SPI runs from RAM with the bit timing of the stock firmware (its delay 0x2df70: 5 counts a half bit to
@@ -134,6 +134,30 @@ static const fd6818_setting_t dmr_settings[] = {
     {0x50, 0xBB20}, {0x30, 0x0000}, {0x30, 0xBFF1}, {0x47, 0x0140}, {0x3F, 0x0000}, {0xC7, 0x0140}, {0x47, 0x0140},
 };
 
+// The FD6818B (chip ID 0x4829, a BK4829; the FD6818 is 0x4819, a BK4819), the newer DM-32 batches (#162): its
+// registers as the BK4829 drivers set them (armel/uv-k1-k5v3-firmware-custom App/driver/bk4829.c, Apache-2.0; the
+// same values in the FD6818B drivers of the UV-K61 firmwares). Written after the power on settings, and any later
+// write of these registers takes them: value = (value & keep) | set. 0x1F / 0x3E the PLL and VCO bias (the FD6818's
+// values left the B chip off frequency), 0x37 bit 15 on, 0x36 the PA
+// gains as the FD6818 has them on the DM-32 (its value after the reset, 0x003F: both gains full, the PA-CTL pin off).
+#define FD6818B_ID 0x4829
+
+// in RAM, as fd6818_write(), which an interrupt may call while the flash is written
+static struct {
+    uint8_t reg;
+    uint16_t keep;
+    uint16_t set;
+} b_registers[] __attribute__((section(".data"))) = {
+    {0x37, 0xFFFF, 0x8000}, {0x36, 0x0000, 0x003F}, {0x10, 0x0000, 0x0318}, {0x11, 0x0000, 0x033A},
+    {0x12, 0x0000, 0x03DB}, {0x13, 0x0000, 0x03DF}, {0x14, 0x0000, 0x0210}, {0x49, 0x0000, 0x2AB2},
+    {0x7B, 0x0000, 0x73DC}, {0x1C, 0x0000, 0x07C0}, {0x1D, 0x0000, 0xE555}, {0x1E, 0x0000, 0x4C58},
+    {0x1F, 0x0000, 0xC65A}, {0x3E, 0x0000, 0x94C6}, {0x19, 0x0000, 0x1041}, {0x28, 0x0000, 0x0B40},
+    {0x29, 0x0000, 0xAA00}, {0x2A, 0x0000, 0x6600}, {0x2C, 0x0000, 0x1822}, {0x53, 0x0000, 0x2028},
+    {0x46, 0x0000, 0x600A}, {0x4A, 0x0000, 0x5430},
+};
+
+static bool chip_b = false;
+
 static bool dmr = false; // the DMR settings are in: its bandwidth setting
 static fd6818_demod_t demod = FD6818_DEMOD_FM;
 static uint16_t af_on = AF_MUTED | (AF_FM << 8); // 0x6142: the receive audio out
@@ -230,8 +254,22 @@ static uint16_t RAM_CODE spi_read_word(void)
 
 // From a task or an interrupt (the DMR engine switches the transmitter per burst): interrupts off, not
 // taskENTER_CRITICAL()
+// The FD6818B's value of a register (b_registers[]), else the value as it is
+static uint16_t RAM_CODE b_value(uint8_t reg, uint16_t value)
+{
+    for (unsigned i = 0; i < (sizeof(b_registers) / sizeof(b_registers[0])); i++) {
+        if (b_registers[i].reg == reg) {
+            return (uint16_t)((value & b_registers[i].keep) | b_registers[i].set);
+        }
+    }
+    return value;
+}
+
 void RAM_CODE fd6818_write(uint8_t reg, uint16_t value)
 {
+    if (chip_b) {
+        value = b_value(reg, value);
+    }
     uint32_t psr = irq_save();
     gpio_reset(PIN_SCN);
     spi_send_byte(reg);
@@ -279,6 +317,16 @@ void fd6818_init(void)
     gpio_output(PIN_SCL, false);
     gpio_output(PIN_SCN, true);
     WRITE_TABLE(init_settings);
+    // The FD6818B: its registers (a kept part: on the value there now)
+    chip_b = (fd6818_read(0x00) == FD6818B_ID);
+    for (unsigned i = 0; chip_b && (i < (sizeof(b_registers) / sizeof(b_registers[0]))); i++) {
+        fd6818_write(b_registers[i].reg, b_registers[i].keep ? fd6818_read(b_registers[i].reg) : 0);
+    }
+}
+
+uint16_t fd6818_chip_id(void)
+{
+    return chip_b ? FD6818B_ID : 0x4819;
 }
 
 void fd6818_post_init(void)

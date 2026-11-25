@@ -411,6 +411,40 @@ Two lines a call: the caller (callsign and name, or ID), the talk group and time
 ▲ ▼ move (SK2 + ▲ ▼: first / last); menu key: transmit to that talk group from now on (SK2 + menu key: a private
 call to the caller); **#** held clears the list.
 
+### Messages
+
+Main menu → **Messages** (with the number of unread ones): **Inbox**, **Outbox**, **Write message**, **Quick texts**. Each box
+keeps 32 messages; when full, the oldest is replaced. A DMR channel sends DMR messages, an M17 channel M17 messages; other
+modes can't send ("A DMR or M17 channel is needed"), all receive.
+
+**Inbox / Outbox**: two lines a message: who (callsign or ID, a talk group as TG) and when (the outbox: its state, Sending /
+Sent / Delivered / Not sent), then the start of the text; unread ones have the envelope icon. ▲ ▼ select, the left key reads.
+
+**Reading**: who as the title, the mode, the ID and when under it, the text wrapped, ▲ ▼ scroll. The left key **replies** in
+the inbox (to the same radio or talk group) and **sends it again** in the outbox (as it was, on the channel now).
+
+**Deleting**: hold **SK2**: the left soft key turns into **Delete**; press the left key to delete, after a question. Reading,
+it deletes that message; in the inbox or outbox list, the selected one, without opening it. The CPS's Messages page deletes
+many at once.
+
+**Writing**:
+
+- The top row is **To**: on DMR the ID typed with the digits, **#** switches between a talk group (TG) and a private
+  message, ◀ deletes a digit; it starts with the channel's transmit target. On M17 a callsign; empty sends to all.
+- Below is the text: the digits type letters and digits (several presses), **\*** symbols, **#** inserts a quick text;
+  ◀ ▶ move the cursor, **SK2 + ◀** deletes the character before it, **SK2 + ▶** inserts a space, ◀ / ▶ held go to the
+  start / end. The title counts the characters (140 at most).
+- ▲ ▼ move between To and the text, the left key sends. The result shows as a notice at the top, and in the outbox.
+
+**Quick texts**: written with the CPS's Messages page (any language). Pick one from the menu to start a new message with
+it; while writing, **#** inserts one at the cursor.
+
+**A new message** shows a notice with a sound: the left key reads it, the right key closes the notice. The status bar shows
+the number of unread messages.
+
+**DMR SMS format** (Options → Radio options): **Motorola** (TMS, the default; the other radio acknowledges it and the
+outbox shows Delivered), **Hytera** or **DMR** (AnyTone's). Messages in any of them are received.
+
 ### Radio info
 
 <img src="manual/en/radio-info.png" alt="Radio info">
@@ -489,6 +523,7 @@ these settings.**
 | Power To All | The default power into every channel and VFO A / B (asked first) |
 | User Power | PA drive of the "user" power level (+W-), 0 - 4100 (steps of 10 with SK2 held) |
 | DMR crc | Off: DMR data CRC errors are ignored |
+| DMR SMS format | The format DMR messages are sent in, see [Messages](#messages) |
 
 Power levels: 50mW, 500mW, 1W, 2W, 3W, 4W, 5W, 7W, 10W, +W-. 1W / 4W / 10W are the factory calibration of the stock
 Low / Middle / High; the others are estimated from them, not measured. Each channel, VFO A and VFO B has its own power:
@@ -712,6 +747,6 @@ firmware: see the README.
 - P25: simplex group calls in clear only; known issues in [docs/p25.md](p25.md), section 6.
 - NXDN: NXDN48 simplex in clear only (no NXDN96, trunking or encryption); a caller shows as its ID, there is no NXDN
   ID to callsign database yet.
-- M17: simplex voice only (no packet data, no encryption), always to ALL; the voice is duller than DMR / NXDN (Codec 2
+- M17: simplex voice and text messages only (no other packet data, no encryption), always to ALL; the voice is duller than DMR / NXDN (Codec 2
   3200).
 - Not fully tested on the air yet: the hotspot's CW ID, satellite passes, talkaround, distance sort.

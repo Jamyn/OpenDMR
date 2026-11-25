@@ -582,8 +582,7 @@ each in the source (`src/graphics/themes/`).
 | Timeout beep | Seconds before the transmit timeout when the warning starts |
 | Beep vol | Volume of the key beeps and other beeps |
 | DMR beep | DMR transmit start / stop beeps |
-| RX beep | Beep at the end of a carrier / talker |
-| Talker beep | Beep when a talker starts too |
+| RX beep | Beeps on receive: None / Carrier (when it ends) / Talker (when a DMR talker ends) / Talker+start (when it starts too) / Both (carrier and talker) / All |
 | FM Tx tones | FM transmit tones (below) |
 | DMR mic / FM mic | Microphone gain of each mode |
 | VOX Thres. / VOX Tail | VOX: 0 = off, smaller is more sensitive; how long it keeps transmitting after you stop |

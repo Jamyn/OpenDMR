@@ -119,11 +119,13 @@ The radio starts in channel mode (in the VFO when it was left there).
 
 <img src="manual/en/channel-menu.png" alt="Channel quick menu"> <img src="manual/en/channel-menu-2.png" alt="Channel quick menu 2">
 
-▲ ▼ choose a row, ◀ ▶ change its value, the menu key applies it and closes the menu, the back key closes it without
-changes.
+▲ ▼ choose a row, ◀ ▶ or the knob change its value (at once, to be heard); the menu key is OK: keeps the changes
+(or does the row's action) and closes the menu; the back key is Cancel: puts back the values of when the menu was
+opened and closes it. The VFO quick menu works the same.
 
 | Row | What it does |
 |---|---|
+| Dual Watch | Dual watch on / off (see [8](#8-dual-watch)) |
 | Channel details | All the settings of this channel (below) |
 | Channel --> VFO | Copy this channel into the VFO in use, then go to the VFO |
 | VFO --> Channel | Overwrite this channel with the VFO in use (asks first) |
@@ -133,8 +135,6 @@ changes.
 | TS Filter | On: only the channel's timeslot is heard |
 | Talkaround | On a repeater channel: talk direct on the receive frequency |
 | Dist sort | Channels of the zone in order of distance from you (needs your location) |
-| Dual Watch | Dual watch on / off (see [8](#8-dual-watch)) |
-| Add to dual watch | Put this channel into a dual watch path (the path it replaces is shown on the right) |
 
 ### Channel details
 
@@ -170,8 +170,8 @@ and B): **hold the back key** to switch, or choose in the VFO menu.
 | Squelch (FM, AM, SSB) / talk group (DMR, P25, NXDN) | ▶ ◀ |
 
 Both frequencies are shown large: the receive one with `RX` (green) on its right, the transmit one with `TX` (red).
-The one the keys change is white, and the digit its step changes is underlined (in its colour): a 12.5 or 25 kHz step
-underlines the second decimal, 2.5 – 6.25 kHz the third. The top line shows the VFO and the step itself.
+The one the keys change is white, with a ^ in its colour under each digit its step changes: a 12.5 kHz step marks
+the 2nd to 4th decimals, 25 kHz the 2nd and 3rd, 6.25 kHz the 3rd to 5th, 5 and 10 kHz one digit. The top line shows the VFO and the step itself.
 
 **AM, USB and LSB are receive only** (the RF chip can only transmit FM): the bottom bar shows `Rx Only`, and the PTT
 shows "Switch to FM or DMR". Their squelch is on the signal strength (0 %: always open); it closes after the signal
@@ -228,14 +228,14 @@ comes the target, `ALL`, with the CAN on the right of its line (e.g. `CAN 0`).
 
 | Row | What it does |
 |---|---|
+| Dual Watch | See [8](#8-dual-watch) |
 | Channel details | All the settings of this VFO (as the channel details) |
-| VFO B / VFO A | The menu key on this row switches VFO |
+| VFO B / VFO A | ◀ ▶ or the knob switch VFO |
 | Tx <--> Rx | Swap the frequencies |
 | Rx --> Tx / Tx --> Rx | Copy the receive frequency to transmit / the other way |
 | Filter, DMR Filter, CC Scan, TS Filter | As in the channel menu |
 | VFO --> New Chan | Save the VFO as a new channel ("New channel N", in All Channels) |
 | Tone scan | Find the CTCSS / DCS tone the other station uses (any key stops on the tone found) |
-| Dual Watch, Add to dual watch | See [8](#8-dual-watch) |
 | Scan low = RX / Scan high = RX | The receive frequency becomes the lower / upper limit of the VFO scan |
 
 ---
@@ -323,19 +323,32 @@ While transmitting:
 
 <img src="manual/en/dual-watch.png" alt="Dual watch">
 
-Two paths watched at once, each **any channel or VFO A / B** (both may be the same).
+Two paths watched at once, each **any channel or VFO A / B** (both may be the same). The dual watch is the home
+screen with one more path watched: the **selected path** is the home screen's channel or VFO, and the keys work as there.
 
-- Switch it on: Dual Watch in the channel or VFO menu. The default paths are VFO A and VFO B; "Add to dual watch" on
-  a channel or VFO puts it in (into the path shown on the right; the next add replaces the other path).
+- **Switch it on**: Dual Watch, the first item of the channel or VFO menu (menu key): ◀ ▶ or the knob to On,
+  then the menu key (OK). The channel / VFO in use becomes
+  the selected path, on top; the other path is the other one of the last time (the first time VFO A, or VFO B when
+  VFO A is in use).
+- **Select**: ▲ / ▼ select the upper / lower path, which has the `PTT` badge; the home screen goes to it too.
+- **Change the selected path** as on the channel / VFO screen: the knob steps the channel or the frequency (on a VFO,
+  SK2 + ▲ ▼ choose receive or transmit; the one changed has a green or red ^ under the digits its step changes, as on the VFO screen); the digits enter a channel
+  number or a frequency; ◀ ▶ talk group or squelch; SK2 + ◀ ▶ power; \*, # and the SK1 / SK2 combinations as there;
+  the back key switches between channel and VFO (held: VFO A ↔ B). To put another channel or VFO in a path, select it
+  and change it there.
+- Both paths the same: both panels shown, the same, one path watched; a change shows on both.
 - The paths are watched in turn; a path with a signal is kept while the signal lasts and a moment after (for the
   answer).
-- Each path: channel number or VFO, mode and power, `PTT` on the right of the transmit path; the name large; the
-  receive and transmit frequencies; the timeslot and talk group, or the tone.
+- Each path: channel number or VFO, mode and power; the name large; the receive and transmit frequencies; the
+  timeslot and talk group, or the tone.
 - A path with a signal: a green bar on its left, its S meter on the last line. A DMR call: the caller's callsign
   replaces the name (its ID when not known), the ID goes top right and the path's name to the left of the header.
-- Transmit: on the path heard last (it has the `PTT` badge); ▲ / ▼ fix the upper / lower path for transmit.
-- Menu key: the main menu; menu key held: the dual watch menu (off, the transmit path). Back key: back to the single
-  watch. Kept over power off.
+- **Transmit**: on the selected path; within 10 s after a signal on the other path, the PTT answers on that path (the
+  `PTT` badge is there then).
+- Bottom bar: Menu on the left; on the right where the back key goes (VFO or Channel), Close while SK2 is held.
+- **Switch it off**: **SK2 + back key**, or Dual Watch (the first item) in the selected path's menu (menu key);
+  starting a scan (SK1 + ▲ ▼) switches it off too. Off: back on the selected path's home screen. Menu key held: the
+  main menu. Kept over power off.
 
 ---
 

@@ -29,6 +29,7 @@
  *   'D' 'k' key(1) kind(1) modifiers(1)  a key event into the UI queue: kind 0 press, 1 long, 2 repeat, 3 release,
  *                                        4 a press and release, 5 a long press (press, long, release); key: ui.h
  *                                        UI_KEY_x (PTT too), modifiers UI_MODIFIER_x   -> 'D' 'k' ok(1)
+ *   'D' 'r' steps(1)                     the knob turned (signed, + clockwise)    -> 'D' 'r' ok(1)
  *   'D' 'q'                              the state, "name=value" lines             -> 'D' 'q' length(2) text
  *   'D' 'g' id(3)                         the APRS-over-DMR gateway, 24 bit big endian -> 'D' 'g' ok(1)
  *   'D' 'w' via(1)                        0 AFSK, 1 DMR, 2 both                     -> 'D' 'w' ok(1)
@@ -288,6 +289,12 @@ uint32_t test_link_command(volatile uint8_t *request, volatile uint8_t *reply, u
         case 'k':
             reply[2] = key_event(request[2], request[3], request[4]) ? 1 : 0;
             return 3;
+        case 'r': {
+            ui_event_t ev = {.type = UI_EVENT_ROTARY, .steps = (int8_t)request[2]};
+
+            reply[2] = ui_post(&ev) ? 1 : 0;
+            return 3;
+        }
         case 'q': {
             uint32_t n = state((char *)&reply[4], reply_size - 4);
 

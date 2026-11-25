@@ -41,7 +41,8 @@
  * this screen (ui_handle_under()): the knob, LEFT / RIGHT, the digits, *, #, SK1 / SK2 with them, the left key (its
  * quick menu, where the dual watch is turned off; held: the main menu), the right key (channel <-> VFO, held: VFO
  * A / B).
- * A scan started there turns the dual watch off. Off: the home screen is the selected path.
+ * A scan started there turns the dual watch off, as SK2 + the right key does ("Close" on its soft key while SK2 is
+ * held). Off: the home screen is the selected path.
  *
  * The PTT: on the path heard last for DW_FOLLOW_MS after its signal (the answer), else on the selected path.
  */
@@ -66,6 +67,7 @@
 #include "channel_details.h"
 #include "vfo_screen.h"
 #include "lock_screen.h"
+#include "keymap.h"
 #include "tx_screen.h"
 #include "tx_target.h"
 #include "dual_watch.h"
@@ -111,6 +113,7 @@ static uint32_t heard_ms;
 static uint32_t redraw_ms;
 static bool opening = false;     // turned on: the home screen's channel or VFO becomes the selected path, on top
 static bool transmitted = false; // the transmit screen was pushed: back from it, stay on that path
+static bool sk2_held = false;    // the right soft key says "Close" (SK2 + the right key turns the dual watch off)
 
 bool dual_watch_is_on(void)
 {
@@ -347,6 +350,7 @@ static void enter(void *arg)
 
     (void)arg;
     transmitted = false;
+    sk2_held = false;
     paths_from_home();
     load_paths();
     if (from_tx) {
@@ -473,6 +477,21 @@ static bool handle(const ui_event_t *ev)
             transmit();
         }
         return false;
+    }
+    // SK2 + the right key: the dual watch off, back to the home screen on the selected path. The keymap sees the key
+    // (SK2 then was combined: not its own action on release); the rest of the key goes to the home screen, which
+    // takes no release without its press
+    if ((ev->type != UI_EVENT_ROTARY) && (ev->key == UI_KEY_RED) && (ev->modifiers & UI_MODIFIER_SK2)) {
+        (void)keymap_action(ev, vfo_screen_is_home() ? KEYMAP_SCREEN_VFO : KEYMAP_SCREEN_CHANNEL);
+        if ((ev->type == UI_EVENT_KEY_PRESS) && !lock_screen_filter(ev)) {
+            dual_watch_set(false);
+            ui_pop();
+        }
+        return false;
+    }
+    if ((ev->type != UI_EVENT_ROTARY) && (ev->key == UI_KEY_SK2) &&
+        ((ev->type == UI_EVENT_KEY_PRESS) || (ev->type == UI_EVENT_KEY_RELEASE))) {
+        sk2_held = (ev->type == UI_EVENT_KEY_PRESS); // and the key goes on to the home screen
     }
     // UP / DOWN alone: the upper / lower path selected (its press; the rest of the key is ours too)
     if ((ev->type != UI_EVENT_ROTARY) && ((ev->key == UI_KEY_UP) || (ev->key == UI_KEY_DOWN)) &&
@@ -624,7 +643,7 @@ static void draw(void)
     if (typing) {
         bottom_bar_draw_soft_keys(text(TEXT_UI_OK), text(TEXT_UI_DELETE)); // as on the home screens
     } else {
-        bottom_bar_draw_soft_keys(text(TEXT_MENU), text(TEXT_UI_BACK));
+        bottom_bar_draw_soft_keys(text(TEXT_MENU), text(sk2_held ? TEXT_UI_CLOSE : TEXT_UI_BACK));
     }
 }
 

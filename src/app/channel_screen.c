@@ -541,6 +541,14 @@ bool channel_screen_select(int number)
     return true;
 }
 
+void channel_screen_set_squelch(uint8_t sql)
+{
+    if (has_channel) {
+        channel.sql = (uint8_t)CLAMP(sql, 0, SQUELCH_MAX);
+        keep(TEMP_SQL);
+    }
+}
+
 int channel_screen_typed(void)
 {
     return direct_channel;

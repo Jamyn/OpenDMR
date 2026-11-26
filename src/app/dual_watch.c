@@ -590,14 +590,15 @@ static void draw_panel(int i, int tx)
         snprintf(buffer, sizeof(buffer), "SQ %d%%", (sql - SQUELCH_MIN) * SQUELCH_PERCENT_STEP);
         draw_text(lx, top + 8, buffer, &font_roboto17, FONT_ALIGN_LEFT, THEME_COLOUR_TEXT_LABEL);
     }
-    if (ptt) {
-        int32_t w = font_text_width(&font_roboto14, "PTT") + 10;
+    // "PTT" in a place of its own, kept free on the other path too: the mode and the power stay where they are
+    int32_t ptt_w = font_text_width(&font_roboto14, "PTT") + 10;
 
-        draw_fill_rect(right - w, top + 9, w, 18, THEME_COLOUR_ACCENT);
+    if (ptt) {
+        draw_fill_rect(right - ptt_w, top + 9, ptt_w, 18, THEME_COLOUR_ACCENT);
         draw_text(right - 5, top + 9 + ((18 - font_roboto14.line_height) / 2), "PTT", &font_roboto14, FONT_ALIGN_RIGHT,
                   THEME_COLOUR_ON_ACCENT);
-        right -= w + 6;
     }
+    right -= ptt_w + 6;
     if (known) {
         snprintf(buffer, sizeof(buffer), "ID %lu", (unsigned long)call.source);
     } else {

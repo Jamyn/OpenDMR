@@ -33,6 +33,7 @@
 
 #include "keymap.h"
 #include "quick_keys.h"
+#include "config_snapshot.h"
 #include "FreeRTOS.h"
 #include "task.h"
 #include "hw.h"
@@ -117,6 +118,7 @@ int main(void)
     language_load();
     ui_list_places_load();
     quick_keys_init();
+    config_snapshot_init(); // the menus' OK / Cancel
     radio_init(); // the factory calibration, the FD6818 and the baseband
     datetime_init();
     adc_init();

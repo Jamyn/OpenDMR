@@ -483,5 +483,4 @@ const char *const text_en[TEXT_COUNT] = {
     [TEXT_UI_CLOSE] = "Close",
     [TEXT_RF_NO_LOCK] = "RF NO LOCK",
     [TEXT_UI_RF_NO_LOCK_HINT] = "TX off: Firmware info",
-    [TEXT_UI_SQL] = "SQL",
 };

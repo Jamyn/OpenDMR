@@ -1084,9 +1084,11 @@ static void draw(void)
 
             draw_text(x, TONE_Y, buffer, &font_roboto20, FONT_ALIGN_LEFT, THEME_COLOUR_TEXT);
         }
-        snprintf(buffer, sizeof(buffer), "%s %d%%", text(TEXT_UI_SQL), (sql - SQUELCH_MIN) * SQUELCH_PERCENT_STEP);
+        snprintf(buffer, sizeof(buffer), "%d%%", (sql - SQUELCH_MIN) * SQUELCH_PERCENT_STEP);
         draw_text(FB_WIDTH - WIDGET_MARGIN, TONE_Y + 2, buffer, &font_roboto17, FONT_ALIGN_RIGHT,
                   THEME_COLOUR_TEXT_LABEL);
+        icons_draw(FB_WIDTH - WIDGET_MARGIN - font_text_width(&font_roboto17, buffer) - 4 - ICONS_SQUELCH_WIDTH,
+                   TONE_Y + ((font_roboto20.line_height - ICONS_SIZE) / 2) + 2, ICONS_SQUELCH, THEME_COLOUR_TEXT_LABEL);
     }
 
     if (digit_entry_active(&entry)) {

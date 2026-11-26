@@ -1028,11 +1028,12 @@ static void draw(void)
         if (codeplug_mode_is_ssb(channel.mode)) {
             bottom.item2 = "3K";
         }
-        // the squelch always on the line, right, as the VFO screen shows it ("SQL": "SQ" read as the S meter's "S0")
+        // the squelch always on the line, right, after its icon, as the VFO screen shows it
         int sql = (channel.sql != 0) ? channel.sql : settings.squelch_defaults[radio_band_of(channel.rx_freq)];
 
-        snprintf(squelch, sizeof(squelch), "%s %d%%", text(TEXT_UI_SQL), (sql - SQUELCH_MIN) * SQUELCH_PERCENT_STEP);
+        snprintf(squelch, sizeof(squelch), "%d%%", (sql - SQUELCH_MIN) * SQUELCH_PERCENT_STEP);
         panel.line_right = squelch;
+        panel.line_right_squelch = true;
     }
     if (reversed) { // on the right; DMR's timeslot and colour code there: in the middle
         if (bottom.right == NULL) {

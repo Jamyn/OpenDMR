@@ -99,7 +99,7 @@ typedef struct {
 } fd6818_setting_t;
 
 // Power on (AT1846InitSettings)
-static const fd6818_setting_t init_settings[] = {
+static const fd6818_setting_t init_settings_4819[] = {
     {0x00, 0x8000}, {0x00, 0x0000}, {0x37, 0x1D0F}, {0x13, 0x03BE}, {0x12, 0x037B}, {0x11, 0x027B}, {0x10, 0x007A},
     {0x14, 0x0019}, {0x49, 0x2A38}, {0x7B, 0x8420}, {0x48, 0x33EF}, {0x1F, 0x5454}, {0x25, 0xC1BA}, {0x77, 0x88EF},
     {0x3E, 0xA037}, {0x13, 0x037E}, {0x7D, 0xE35E}, {0xB3, 0xFF00}, {0x33, 0xFE00}, {0xB4, 0x0000}, {0x34, 0x0009},
@@ -112,7 +112,7 @@ static const fd6818_setting_t init_settings[] = {
 };
 
 // After the modem init (AT1846PostinitSettings)
-static const fd6818_setting_t post_init_settings[] = {
+static const fd6818_setting_t post_init_settings_4819[] = {
     {0x47, 0x0000}, {0x13, 0x037E}, {0x47, 0x6042}, {0x7E, 0x302E}, {0x2B, 0xC000}, {0x43, 0x3028}, {0x78, 0x6968},
     {0x30, 0x0000}, {0x38, 0xBA00}, {0x39, 0x00DB}, {0x32, 0x0244}, {0x07, 0x0470}, {0x07, 0x21CE}, {0x51, 0x0000},
     {0x3F, 0x0000}, {0x37, 0x1F0F}, {0x30, 0x0000}, {0x30, 0xBFF1}, {0x47, 0x6042}, {0x48, 0xBBBF},
@@ -124,7 +124,7 @@ static const fd6818_setting_t post_init_settings[] = {
 // (bit 15 clear; OpenDM32 0xB03F fixes it at the highest gain): with the gain fixed the RSSI tops out at about
 // -57 dBm (S8) however close the station, automatic it reads S9+40 like FM; the bad frames measured the same
 // (32 % fixed, 31 % automatic, the same weak signal, 2026-11-10)
-static const fd6818_setting_t dmr_settings[] = {
+static const fd6818_setting_t dmr_settings_4819[] = {
     {0x31, 0x0000}, {0x42, 0x6F5A}, {0x2A, 0x7400}, {0x47, 0x0000}, {0x30, 0x0000}, {0x13, 0x037E}, {0x47, 0x0140},
     {0x48, 0xBBBF}, {0x7E, 0x303F}, {0x2B, 0x0700}, {0x43, 0x4048}, {0x78, 0x6968}, {0x30, 0x0000}, {0x37, 0x1F1F},
     {0x50, 0xBB20}, {0x30, 0x0000}, {0x30, 0xBFF1}, {0x47, 0x0140}, {0x3F, 0x0000}, {0xC7, 0x0140}, {0x47, 0x0140},
@@ -147,22 +147,20 @@ static uint16_t bandwidth(bool wide)
     return (wide && (demod == FD6818_DEMOD_FM)) ? BANDWIDTH_25 : BANDWIDTH_12;
 }
 
-static const fd6818_setting_t fm_settings[] = {
+static const fd6818_setting_t fm_settings_4819[] = {
     {0x31, 0x0000}, {0x42, 0x6F5A}, {0x2A, 0x7400}, {0x30, 0x0000}, {0x13, 0x037E}, {0x47, 0x6042},
     {0x7E, 0x302E}, {0x2B, 0xC000}, {0x43, 0x3028}, {0x07, 0x0470}, {0x07, 0x21CE}, {0x51, 0x0000},
     {0x3F, 0x0000}, {0x37, 0x1F0F}, {0x50, 0x3B20}, {0x30, 0xBFF1}, {0x47, 0x6042}, {0x48, 0xBBBF},
 };
 
-/* Set-up B: the newer DM-32UV RF section (stock firmware DM32.NRFB.01.050; #162, #174), whose synthesizer never locks
-   on the tables above (0x0C bit 9 stays clear: no receive, transmit far off frequency). Told apart by that lock
-   (fd6818_init()), not by the ID: one such radio read 0x4829 / 0x3D = 0 (#174), but 0.9.2's pick by 0x4829 did not
-   help bh2rsj's. The values as RadioFoundry found and
-   checked them on two such radios (FM both ways, DMR both ways; its docs/spec/hardware-dm32.md 8.10 and
-   drivers/rf/fd6818/fd6818_setup_b.c, MIT, the DM-1801 Pro's FD6818 set-up): 0x37 bit 15 (0x9D1F), an extra 0x0200
-   step into receive and transmit, no 0x1A band word and 0x40 = 0x34F0, DMR's 0x47 / 0x48 = 0x6943 / 0xB2FD with the
-   HR_C7000's RF_MODE receive inversion (bit 15) clear, 0x50 around each switch to transmit, 0x2E / 0x2F by the receive
-   tone. Not yet checked on our side: we have no such radio */
-static const fd6818_setting_t init_settings_b[] = {
+/* Chip ID 0x4829 (0x3D reads 0): the newer DM-32UV RF section (stock firmware DM32.NRFB.01.050; #162, #174), whose
+   synthesizer never locks on the 0x4819 tables above (0x0C bit 9 stays clear: no receive, transmit far off frequency).
+   The values as RadioFoundry found and checked them on two such radios (FM both ways, DMR both ways; its
+   docs/spec/hardware-dm32.md 8.10 and drivers/rf/fd6818/fd6818_setup_b.c, MIT, the DM-1801 Pro's FD6818 set-up): 0x37
+   bit 15 (0x9D1F), an extra 0x0200 step into receive and transmit, no 0x1A band word and 0x40 = 0x34F0, DMR's 0x47 /
+   0x48 = 0x6943 / 0xB2FD with the HR_C7000's RF_MODE receive inversion (bit 15) clear, 0x50 around each switch to
+   transmit, 0x2E / 0x2F by the receive tone. FM both ways checked on dev2vv's radio (#174) */
+static const fd6818_setting_t init_settings_4829[] = {
     {0x00, 0x8000}, {0x00, 0x0000}, {0x37, 0x9D1F}, {0x13, 0x03DF}, {0x12, 0x03DB}, {0x11, 0x033A}, {0x10, 0x0318},
     {0x14, 0x0210}, {0x19, 0x1041}, {0x1C, 0x0422}, {0x1D, 0x2AAB}, {0x1E, 0x4C58}, {0x1F, 0x165A}, {0x25, 0x6DBA},
     {0x28, 0x0A40}, {0x29, 0xAA00}, {0x2A, 0x6600}, {0x2C, 0x0022}, {0x2F, 0x9890}, {0x3A, 0x9A7C}, {0x3E, 0x94C6},
@@ -173,24 +171,24 @@ static const fd6818_setting_t init_settings_b[] = {
     {0x09, 0xC0E4}, {0x09, 0xD0CB}, {0x09, 0xE0B5}, {0x09, 0xF09F}, {0x21, 0x06D8}, {0x24, 0x8C7E},
 };
 
-static const fd6818_setting_t post_init_settings_b[] = {
+static const fd6818_setting_t post_init_settings_4829[] = {
     {0x30, 0x0000},
 };
 
 // FM: the 0x2B mode word, 0x48 its power on value again (DMR changes it); 0x50 as FM transmit leaves it (DMR: 0x3B18)
-static const fd6818_setting_t fm_settings_b[] = {
+static const fd6818_setting_t fm_settings_4829[] = {
     {0x30, 0x0000}, {0x32, 0x0244}, {0x47, 0x6042}, {0x48, 0xB386}, {0x7E, 0x302E}, {0x2B, 0xC000}, {0x50, 0x3B20},
 };
 
 // DMR: these, then 0x3F = 0 (the power on 0x07FE never in DMR)
-static const fd6818_setting_t dmr_settings_b[] = {
+static const fd6818_setting_t dmr_settings_4829[] = {
     {0x47, 0x6943}, {0x48, 0xB2FD}, {0x7E, 0xB03F}, {0x2B, 0x0700}, {0x28, 0x0A40}, {0x3F, 0x0000},
 };
 
-// The values of each chip: its tables, and the ones the functions write
+// The values of each chip ID (register 0x00): its tables, and the ones the functions write. Another chip: its
+// values here and a line in chips[], no code
 typedef struct {
-    char setup; // 'A' the classic RF section, 'B' the newer one
-    bool b;     // set-up B: its receive / transmit steps, band and tone words (above)
+    uint16_t id;
     const fd6818_setting_t *init, *post_init, *fm, *dmr;
     uint8_t init_count, post_init_count, fm_count, dmr_count;
     uint16_t tx_37;                  // 0x37, fd6818_transmit_prepare()
@@ -199,20 +197,27 @@ typedef struct {
     uint16_t agc_top_am, agc_thr_am;
     uint16_t reg_2a_fm, reg_2a_am;   // 0x2A (fd6818_set_demod())
     uint16_t dmr_af;                 // 0x47 in DMR receive
+    uint16_t reg_42_fm, reg_42_am;   // 0x42 (fd6818_set_demod()); 0: not written
+    uint16_t reg_40;                 // 0x40 with each frequency; 0: 0x1A and 0x40 by the band (bands[])
+    uint16_t control_step;           // 0x30 between idle and receive / transmit (0x37 = tx_37 first); 0: none
+    uint16_t tx_50_on, tx_50_after;  // 0x50 before and after the switch to FM transmit; 0: not written
+    bool dmr_bursts_direct;          // DMR bursts straight between receive and transmit (idle for a new frequency)
+    uint16_t rx_ctcss_2e, rx_ctcss_2f, rx_plain_2e, rx_plain_2f; // 0x2E / 0x2F by the receive tone; 0: not written
+    bool rx_inverted;                // the HR_C7000's RF_MODE receive inversion (bit 15)
 } fd6818_chip_t;
 
 #define COUNT(table) ((uint8_t)(sizeof(table) / sizeof((table)[0])))
 
-static const fd6818_chip_t fd6818 = {
-    .setup = 'A',
-    .init = init_settings,
-    .init_count = COUNT(init_settings),
-    .post_init = post_init_settings,
-    .post_init_count = COUNT(post_init_settings),
-    .fm = fm_settings,
-    .fm_count = COUNT(fm_settings),
-    .dmr = dmr_settings,
-    .dmr_count = COUNT(dmr_settings),
+static const fd6818_chip_t fd6818_4819 = {
+    .id = 0x4819,
+    .init = init_settings_4819,
+    .init_count = COUNT(init_settings_4819),
+    .post_init = post_init_settings_4819,
+    .post_init_count = COUNT(post_init_settings_4819),
+    .fm = fm_settings_4819,
+    .fm_count = COUNT(fm_settings_4819),
+    .dmr = dmr_settings_4819,
+    .dmr_count = COUNT(dmr_settings_4819),
     .tx_37 = 0x1D0F,
     .dmr_37_tx = 0x1D0F,
     .dmr_37_rx = 0x1F1F,
@@ -223,39 +228,51 @@ static const fd6818_chip_t fd6818 = {
     .reg_2a_fm = 0x7400,
     .reg_2a_am = 0x7434,
     .dmr_af = 0x0140,
+    .reg_42_fm = 0x6F5A,
+    .reg_42_am = 0x6F5C,
+    .rx_inverted = true,
 };
 
-static const fd6818_chip_t fd6818b = {
-    .setup = 'B',
-    .b = true,
-    .init = init_settings_b,
-    .init_count = COUNT(init_settings_b),
-    .post_init = post_init_settings_b,
-    .post_init_count = COUNT(post_init_settings_b),
-    .fm = fm_settings_b,
-    .fm_count = COUNT(fm_settings_b),
-    .dmr = dmr_settings_b,
-    .dmr_count = COUNT(dmr_settings_b),
+static const fd6818_chip_t fd6818_4829 = {
+    .id = 0x4829,
+    .init = init_settings_4829,
+    .init_count = COUNT(init_settings_4829),
+    .post_init = post_init_settings_4829,
+    .post_init_count = COUNT(post_init_settings_4829),
+    .fm = fm_settings_4829,
+    .fm_count = COUNT(fm_settings_4829),
+    .dmr = dmr_settings_4829,
+    .dmr_count = COUNT(dmr_settings_4829),
     .tx_37 = 0x9D1F,
     .dmr_37_tx = 0x9D1F,
     .dmr_37_rx = 0x9D1F,
     .agc_top_fm = 0x0210,
     .agc_thr_fm = 0x2A32,
-    .agc_top_am = 0x0210, // AM: not worked out on set-up B (RadioFoundry has none either)
+    .agc_top_am = 0x0210, // AM: not worked out on this chip (RadioFoundry has none either)
     .agc_thr_am = 0x2A32,
     .reg_2a_fm = 0x6600,
     .reg_2a_am = 0x6600,
     .dmr_af = 0x6943,
+    .reg_40 = 0x34F0, // 0x3480 + the power on calibration byte; the chip sets 0x1A itself
+    .control_step = 0x0200,
+    .tx_50_on = 0xBB20,
+    .tx_50_after = 0x3B20,
+    .dmr_bursts_direct = true,
+    .rx_ctcss_2e = 0x8608,
+    .rx_ctcss_2f = 0x1890,
+    .rx_plain_2e = 0x9608,
+    .rx_plain_2f = 0x9890,
 };
 
-static const fd6818_chip_t *chip = &fd6818;
-static bool locked_at_start;   // the start-up check found a set-up whose synthesizer locks
-static uint16_t start_id;      // 0x00 and 0x3D as read at start (after the reset and the set-up A table)
-static uint16_t start_3d;
-static uint32_t dmr_frequency; // set-up B: the last DMR burst's frequency words
+// By the ID read at power on; another ID: the 0x4819 values (the power on check then tells whether they lock)
+static const fd6818_chip_t *const chips[] = {&fd6818_4819, &fd6818_4829};
 
-#define REG_40_B        0x34F0   // set-up B: 0x40 in receive (0x3480 + the power on calibration byte)
-#define CONTROL_STEP_B  0x0200   // set-up B: between idle and receive / transmit
+static const fd6818_chip_t *chip = &fd6818_4819;
+static bool locked_at_start;   // the chip ID's values locked at power on (else no transmitting: fd6818_locked())
+static uint16_t start_id;      // 0x00 and 0x3D as read at start (0x3D after the reset and the chip's table)
+static uint16_t start_3d;
+static uint32_t dmr_frequency; // dmr_bursts_direct: the last DMR burst's frequency words
+
 #define FLAGS_LOCKED    0x0200   // 0x0C bit 9: the synthesizer locked
 #define PROBE_FREQUENCY 14500000 // 145 MHz (10 Hz units): in band on both sections
 #define PROBE_MS        20
@@ -393,20 +410,18 @@ static bool synthesizer_locked(uint32_t ms)
     }
 }
 
-// A set-up, tuned to receive on 145 MHz: whether its synthesizer locks
-static bool probe(const fd6818_chip_t *c, uint32_t ms)
+// The chip's values, tuned to receive on 145 MHz: whether its synthesizer locks
+static bool probe(uint32_t ms)
 {
-    chip = c;
-    write_table(c->init, c->init_count);
-    write_table(c->post_init, c->post_init_count);
-    write_table(c->fm, c->fm_count);
+    write_table(chip->init, chip->init_count);
+    write_table(chip->post_init, chip->post_init_count);
+    write_table(chip->fm, chip->fm_count);
     fd6818_set_frequency(PROBE_FREQUENCY, false);
     return synthesizer_locked(ms);
 }
 
-// Which RF section: as RadioFoundry's rf_detect(), set-up A, then B (the chip ID is kept to be shown, not trusted). B
-// locks on both sections, so A goes first; when only B locks, A once more with a longer wait (a slow lock on the
-// classic section is not taken for the newer one), then B again. Nothing locking: set-up A
+// The values by the chip ID (0x00), then a check that its synthesizer locks with them (once more with a longer wait);
+// when it doesn't, the radio doesn't transmit
 void fd6818_init(void)
 {
     gpio_input(PIN_GP0);
@@ -418,24 +433,21 @@ void fd6818_init(void)
     fd6818_write(0x00, 0x8000); // the reset
     fd6818_write(0x00, 0x0000);
     start_id = fd6818_read(0x00);
-    write_table(fd6818.init, fd6818.init_count);
-    start_3d = fd6818_read(REG_IF);
-
-    const fd6818_chip_t *found = NULL;
-
-    if (probe(&fd6818, PROBE_MS)) {
-        found = &fd6818;
-    } else if (probe(&fd6818b, PROBE_MS)) {
-        found = probe(&fd6818, PROBE_RETRY_MS) ? &fd6818 : (probe(&fd6818b, PROBE_MS) ? &fd6818b : NULL);
+    chip = &fd6818_4819;
+    for (unsigned i = 0; i < (sizeof(chips) / sizeof(chips[0])); i++) {
+        if (chips[i]->id == start_id) {
+            chip = chips[i];
+        }
     }
-    locked_at_start = (found != NULL);
-    chip = (found != NULL) ? found : &fd6818;
+    write_table(chip->init, chip->init_count);
+    start_3d = fd6818_read(REG_IF);
+    locked_at_start = probe(PROBE_MS) || probe(PROBE_RETRY_MS);
     write_table(chip->init, chip->init_count);
 }
 
-char fd6818_setup(void)
+bool fd6818_locked(void)
 {
-    return locked_at_start ? chip->setup : '-';
+    return locked_at_start;
 }
 
 void fd6818_start_ids(uint16_t *id, uint16_t *reg_3d)
@@ -446,7 +458,7 @@ void fd6818_start_ids(uint16_t *id, uint16_t *reg_3d)
 
 bool fd6818_rx_inverted(void)
 {
-    return !chip->b;
+    return chip->rx_inverted;
 }
 
 void fd6818_post_init(void)
@@ -483,8 +495,8 @@ void fd6818_set_demod(fd6818_demod_t new_demod)
     // (2026-11-21).
     fd6818_write(REG_AFC, (uint16_t)(fd6818_read(REG_AFC) | AFC_OFF));
     fd6818_write(0x31, (uint16_t)((fd6818_read(0x31) & ~1u) | (am ? 1u : 0u)));
-    if (!chip->b) {
-        fd6818_write(0x42, am ? 0x6F5C : 0x6F5A);
+    if (chip->reg_42_fm != 0) {
+        fd6818_write(0x42, am ? chip->reg_42_am : chip->reg_42_fm);
     }
     fd6818_write(0x2A, am ? chip->reg_2a_am : chip->reg_2a_fm);
     fd6818_write(0x2B, am ? 0x0600 : 0xC000);
@@ -508,15 +520,15 @@ void fd6818_set_dmr(void)
 
 /* Frequency, receive, transmit */
 
-// From idle to receive or transmit: set-up B with 0x37, (transmit) 0x52 and the 0x0200 step first
+// From idle to receive or transmit: with a control step, 0x37, (transmit) 0x52 and that step first
 static void control_on(uint16_t control)
 {
-    if (chip->b) {
-        fd6818_write(0x37, 0x9D1F);
+    if (chip->control_step != 0) {
+        fd6818_write(0x37, chip->tx_37);
         if (control != CONTROL_RX) {
             fd6818_write(0x52, 0x028F);
         }
-        fd6818_write(REG_CONTROL, CONTROL_STEP_B);
+        fd6818_write(REG_CONTROL, chip->control_step);
     }
     fd6818_write(REG_CONTROL, control);
 }
@@ -524,8 +536,8 @@ static void control_on(uint16_t control)
 void fd6818_set_frequency(uint32_t frequency, bool wide)
 {
     fd6818_write(REG_CONTROL, CONTROL_IDLE); // AF muted
-    if (chip->b) {
-        fd6818_write(0x40, REG_40_B); // the chip sets 0x1A itself
+    if (chip->reg_40 != 0) {
+        fd6818_write(0x40, chip->reg_40);
     } else {
         for (unsigned i = 0; i < (sizeof(bands) / sizeof(bands[0])); i++) {
             if (frequency >= bands[i].from) {
@@ -566,12 +578,12 @@ void fd6818_transmit(bool wide)
 {
     fd6818_write(REG_CONTROL, CONTROL_IDLE);
     fd6818_write(REG_BANDWIDTH, bandwidth(wide));
-    if (chip->b) {
-        fd6818_write(0x50, 0xBB20);
+    if (chip->tx_50_on != 0) {
+        fd6818_write(0x50, chip->tx_50_on);
     }
     control_on(CONTROL_TX);
-    if (chip->b) {
-        fd6818_write(0x50, 0x3B20);
+    if (chip->tx_50_after != 0) {
+        fd6818_write(0x50, chip->tx_50_after);
     }
 }
 
@@ -579,7 +591,7 @@ void fd6818_transmit(bool wide)
    out and the raw baseband (0x50 bit 15) are off while transmitting */
 
 #define DMR_50_TX    0x3B18 // stock 0x2b5a8
-#define DMR_50_RX    0xBB20 // the raw baseband to the HR_C7000 (dmr_settings[])
+#define DMR_50_RX    0xBB20 // the raw baseband to the HR_C7000 (dmr_settings_4819[])
 #define AF_OUT_MASK  0x0F00
 
 static void frequency_words(uint32_t frequency)
@@ -588,9 +600,10 @@ static void frequency_words(uint32_t frequency)
     fd6818_write(0x39, (uint16_t)(frequency >> 16));
 }
 
-// Set-up B: straight between receive and transmit, through idle only for another frequency (through idle each time,
-// the first burst received after each one sent came back about 400 Hz off: RadioFoundry, hardware-dm1801pro.md 5.6)
-static void burst_frequency_b(uint32_t frequency)
+// dmr_bursts_direct: straight between receive and transmit, through idle only for another frequency (through idle
+// each time, the first burst received after each one sent came back about 400 Hz off: RadioFoundry,
+// hardware-dm1801pro.md 5.6)
+static void burst_frequency_direct(uint32_t frequency)
 {
     if (frequency != dmr_frequency) {
         fd6818_write(REG_CONTROL, CONTROL_IDLE);
@@ -602,8 +615,8 @@ static void burst_frequency_b(uint32_t frequency)
 // 0x2b674: the frequency, idle, the audio out off, transmit, the baseband path for transmitting
 void fd6818_dmr_burst_tx(uint32_t frequency)
 {
-    if (chip->b) {
-        burst_frequency_b(frequency);
+    if (chip->dmr_bursts_direct) {
+        burst_frequency_direct(frequency);
         fd6818_write(REG_AF, fd6818_read(REG_AF) & (uint16_t)~AF_OUT_MASK);
         fd6818_write(0x52, 0x028F);
         fd6818_write(REG_CONTROL, CONTROL_TX);
@@ -623,8 +636,8 @@ void fd6818_dmr_burst_tx(uint32_t frequency)
 // 0x2b6a0: idle, the frequency, receive, the audio out; 0x50 back to the raw baseband (stock elsewhere)
 void fd6818_dmr_burst_rx(uint32_t frequency)
 {
-    if (chip->b) { // 0x50 stays as the burst sent left it (0x3B18)
-        burst_frequency_b(frequency);
+    if (chip->dmr_bursts_direct) { // 0x50 stays as the burst sent left it (0x3B18)
+        burst_frequency_direct(frequency);
         fd6818_write(REG_CONTROL, CONTROL_RX);
         fd6818_write(REG_AF, chip->dmr_af);
         fd6818_write(0x3F, 0x0000);
@@ -841,11 +854,11 @@ static void set_dcs(uint16_t tone, bool transmit)
 
 void fd6818_set_rx_tone(uint16_t tone)
 {
-    if (chip->b) { // two words by the receive tone: CTCSS, else (DCS or none) the power on 0x2F
+    if (chip->rx_ctcss_2e != 0) { // two words by the receive tone: CTCSS, else (DCS or none) the power on 0x2F
         bool ctcss = (tone != CODEPLUG_CSS_NONE) && !(tone & TONES_DCS);
 
-        fd6818_write(0x2E, ctcss ? 0x8608 : 0x9608);
-        fd6818_write(0x2F, ctcss ? 0x1890 : 0x9890);
+        fd6818_write(0x2E, ctcss ? chip->rx_ctcss_2e : chip->rx_plain_2e);
+        fd6818_write(0x2F, ctcss ? chip->rx_ctcss_2f : chip->rx_plain_2f);
     }
     if (tone == CODEPLUG_CSS_NONE) {
         fd6818_write(REG_CSS_MODE, 0x0000);

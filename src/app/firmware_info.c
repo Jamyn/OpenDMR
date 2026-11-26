@@ -90,10 +90,10 @@ static void draw(void)
     row.value = "DM-32UV";
     list_view_draw_row(3, &row);
 
-    // The RF chip as read at start: 0x00 (its ID) / 0x3D, and the set-up whose synthesizer locked (A the classic RF
-    // section, B the newer one, - none)
+    // The RF chip as read at start: 0x00 (its ID, which picks its values) / 0x3D and, when its synthesizer didn't lock
+    // with them at power on (no transmitting), "no lock"
     fd6818_start_ids(&rf_id, &rf_3d);
-    snprintf(rf, sizeof(rf), "%04X / %04X  %c", (unsigned)rf_id, (unsigned)rf_3d, fd6818_setup());
+    snprintf(rf, sizeof(rf), "%04X / %04X%s", (unsigned)rf_id, (unsigned)rf_3d, fd6818_locked() ? "" : "  no lock");
     row.name = "RF ID";
     row.value = rf;
     list_view_draw_row(4, &row);

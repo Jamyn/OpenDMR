@@ -82,7 +82,7 @@
 #define WORK_MODE_FM       0x80
 #define WORK_MODE_FM_TX    0xEE // stock, transmitting FM
 #define RF_MODE_DIRECT     0x03269860 // RF_MODE bit 11 in direct mode (stock 0x301d9c0)
-#define RF_MODE_RX_INVERT  0x00008000 // the receive inversion: clear on the newer RF section (fd6818_rx_inverted())
+#define RF_MODE_RX_INVERT  0x00008000 // the receive inversion: by the RF chip ID (fd6818_rx_inverted())
 // RF_CONTROL: byte 0 the receive start, byte 1 the Tx interrupt ahead of the burst, in bits (104 us). Direct mode had
 // 0x0A (1.04 ms), too short for the PA to settle before the data: the first voice frame of each burst came out bad
 // (measured 2026-11-10: 77 % of them at UHF). 0x1F as the stock repeater mode (3.2 ms) with the stock 1.6 ms wait puts
@@ -253,5 +253,5 @@ void modem_beep_write(const uint8_t data[MODEM_BEEP_BLOCK])
 
 void modem_pa_drive(uint16_t value)
 {
-    DAC_DATA_B = value;
+    DAC_DATA_B = fd6818_locked() ? value : 0; // the RF chip's values didn't lock: no power out, whoever asks
 }

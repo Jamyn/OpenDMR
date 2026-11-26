@@ -420,11 +420,14 @@ static bool in_band_limits(uint32_t frequency)
 // A frequency the radio may transmit on (the hardware's bands and the band limits of the settings)
 bool tx_frequency_ok(uint32_t frequency)
 {
-    return codeplug_frequency_can_transmit(frequency) && in_band_limits(frequency);
+    return fd6818_locked() && codeplug_frequency_can_transmit(frequency) && in_band_limits(frequency);
 }
 
 radio_tx_check_t tx_check(const codeplug_channel_t *c, bool valid)
 {
+    if (!fd6818_locked()) {
+        return RADIO_TX_RF_NO_LOCK;
+    }
     if (!valid) {
         return RADIO_TX_NO_CHANNEL;
     }

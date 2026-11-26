@@ -32,18 +32,19 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-// The FD6818 RF transceiver (a BK4819: ID 0x4819), on the classic DM-32 RF section (set-up A) or the newer one
-// (set-up B: other tables, ID 0x4829 on one such radio; fd6818.c)
+// The FD6818 RF transceiver (a BK4819): its values by the chip ID it reads (0x4819 the classic DM-32 RF section,
+// 0x4829 the newer one; fd6818.c chips[])
 // (OpenDM32 hardware/AT1846S.c and radioHardwareInterface.c):
 // 16-bit registers on a soft SPI (GPIO 0x07 clock, 0x08 data, 0x18 chip select). Only the radio service uses it.
 // Frequencies in 10 Hz units (the chip takes them as they are). Tones as the codeplug holds them (services/tones.h).
 
 void fd6818_init(void);      // pins and the power on settings
 void fd6818_post_init(void); // after the modem init
-// The start-up check (fd6818_init()): 'A' the classic RF section, 'B' the newer one, '-' no set-up locked (then A)
-char fd6818_setup(void);
+// Its synthesizer locked at power on with the chip ID's values (0x0C bit 9, 145 MHz receive); false: no transmitting
+// at all (values wrong for this chip)
+bool fd6818_locked(void);
 void fd6818_start_ids(uint16_t *id, uint16_t *reg_3d); // 0x00 and 0x3D as read at start
-bool fd6818_rx_inverted(void); // the HR_C7000's RF_MODE receive inversion (bit 15): set on A, clear on B
+bool fd6818_rx_inverted(void); // the HR_C7000's RF_MODE receive inversion (bit 15), by the chip ID
 void fd6818_set_fm(uint8_t rx_volume); // the FM settings; rx_volume: the factory analog receive level (0x48)
 void fd6818_set_dmr(void);             // the DMR settings (bandwidth: DMR whatever "wide" says, until fd6818_set_fm())
 // The analog demodulator (fd6818_set_fm() sets FM): AM, or SSB (USB and LSB alike, the tuning picks the sideband).

@@ -31,6 +31,7 @@
  * cable link tasks, then the UI with the channel screen as the home screen.
  */
 
+#include <stdio.h>
 #include "keymap.h"
 #include "quick_keys.h"
 #include "FreeRTOS.h"
@@ -62,6 +63,7 @@
 #include "datetime.h"
 #include "input.h"
 #include "ui.h"
+#include "fd6818.h"
 #include "list_screen.h"
 #include "channel_screen.h"
 #include "hotspot.h"
@@ -141,6 +143,14 @@ int main(void)
              // the power-on PIN first, else the lock screen (the lock PIN), else the FM radio if it was on
              (security_boot_locked() ? &pin_screen
                                      : (lock ? lock : (fm_radio_was_playing() ? &fm_radio_screen : boot_screen_start()))));
+    if (!fd6818_locked()) { // the RF chip's values didn't lock: say so, with what was read (no transmitting)
+        char detail[UI_NOTICE_TEXT_MAX + 1];
+        uint16_t rf_id, rf_3d;
+
+        fd6818_start_ids(&rf_id, &rf_3d);
+        snprintf(detail, sizeof(detail), "PLL no lock, RF ID %04X / %04X: TX off", (unsigned)rf_id, (unsigned)rf_3d);
+        ui_notify_text(TEXT_RF_NO_LOCK, detail, UI_NOTICE_ERROR, UI_NOTICE_MS_MAX);
+    }
     systime_watchdog_start(); // a stall from here on resets the radio
 
     vTaskStartScheduler();

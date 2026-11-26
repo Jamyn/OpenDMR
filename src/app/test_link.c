@@ -227,7 +227,7 @@ static uint32_t state(char *text, uint32_t size)
     uint16_t rf_id, rf_3d;
 
     fd6818_start_ids(&rf_id, &rf_3d);
-    put(&o, "rf_setup", "%c", fd6818_setup()); // A the classic RF section, B the newer one, - none locked
+    put(&o, "rf_lock", "%d", fd6818_locked() ? 1 : 0); // 0: the synthesizer didn't lock at power on, no transmitting
     put(&o, "rf_chip", "%04x,%04x", (unsigned)rf_id, (unsigned)rf_3d); // FD6818 0x00 and 0x3D at start
     put(&o, "aprs_via", "%u", (unsigned)extra_options_aprs_via());
     put(&o, "aprs_gateway", "%u", (unsigned)extra_options_aprs_dmr_gateway());

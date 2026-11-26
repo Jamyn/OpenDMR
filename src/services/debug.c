@@ -48,7 +48,8 @@
 #include "debug.h"
 #include "flash.h"
 #include "cable_link.h"
-#include "fd6818.h"
+#include "trx.h"
+#include "trx_spi.h"
 
 
 uint32_t (*debug_app_command)(volatile uint8_t *request, volatile uint8_t *reply, uint32_t reply_size) = NULL;
@@ -196,7 +197,7 @@ uint32_t debug_handle_command(volatile uint8_t *request, volatile uint8_t *reply
             reply[2] = (uint8_t)first;
             reply[3] = (uint8_t)count;
             for (uint32_t i = 0; i < count; i++) {
-                uint16_t value = fd6818_read((uint8_t)(first + i));
+                uint16_t value = trx_spi_read((uint8_t)(first + i));
 
                 reply[4 + (2 * i)] = (uint8_t)(value >> 8);
                 reply[5 + (2 * i)] = (uint8_t)value;

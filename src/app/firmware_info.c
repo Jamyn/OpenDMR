@@ -37,7 +37,7 @@
 #include "draw.h"
 #include "fonts.h"
 #include "menus.h"
-#include "fd6818.h"
+#include "trx.h"
 
 #define STRINGIFY(x)  #x
 #define XSTRINGIFY(x) STRINGIFY(x)
@@ -90,11 +90,11 @@ static void draw(void)
     row.value = "DM-32UV";
     list_view_draw_row(3, &row);
 
-    // The RF chip as read at start: 0x00 (its ID, which picks its values) / 0x3D and, when its synthesizer didn't lock
-    // with them at power on (no transmitting), "no lock"
-    fd6818_start_ids(&rf_id, &rf_3d);
-    snprintf(rf, sizeof(rf), "%04X / %04X%s", (unsigned)rf_id, (unsigned)rf_3d, fd6818_locked() ? "" : "  no lock");
-    row.name = "RF ID";
+    // The RF chip found at power on, its ID and, when its synthesizer didn't lock (no transmitting), "no lock"
+    trx_start_ids(&rf_id, &rf_3d);
+    snprintf(rf, sizeof(rf), "%s %04X%s", trx_chip_name() ? trx_chip_name() : "?", (unsigned)rf_id,
+             trx_locked() ? "" : " no lock");
+    row.name = "RF chip";
     row.value = rf;
     list_view_draw_row(4, &row);
 

@@ -209,6 +209,7 @@ trx_driver_t trx_fd6818b = {
     .set_band = set_band,
     .set_frequency = fd68xx_set_frequency,
     .rx_on = rx_on,
+    .tune = fd68xx_tune, // CONTROL_STEP only from idle (control_on()); tune doesn't go through idle
     .transmit_prepare = transmit_prepare,
     .tx_on = tx_on,
     .set_mic_gain = fd68xx_set_mic_gain,

@@ -77,6 +77,7 @@ void fd68xx_set_volume(uint8_t rx_volume); // the receive level as the stock fir
 void fd68xx_set_bandwidth(trx_bandwidth_t bandwidth);
 void fd68xx_idle(void);
 void fd68xx_set_frequency(uint32_t frequency); // the frequency words 0x38 / 0x39 (10 Hz units)
+void fd68xx_tune(uint32_t frequency);          // receiving, a little apart: not through idle (trx_driver.h)
 void fd68xx_set_mic_gain(uint8_t gain);
 void fd68xx_tx_tone(uint16_t hz1, uint16_t hz2, uint8_t gain);
 void fd68xx_tx_tone_end(void);

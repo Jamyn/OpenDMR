@@ -154,8 +154,9 @@ static const fd6818_setting_t fm_settings[] = {
 };
 
 /* Set-up B: the newer DM-32UV RF section (stock firmware DM32.NRFB.01.050; #162, #174), whose synthesizer never locks
-   on the tables above (0x0C bit 9 stays clear: no receive, transmit far off frequency). Its chip reads the same ID as
-   the classic one (we think), so it is told apart by that lock (fd6818_init()). The values as RadioFoundry found and
+   on the tables above (0x0C bit 9 stays clear: no receive, transmit far off frequency). Told apart by that lock
+   (fd6818_init()), not by the ID: one such radio read 0x4829 / 0x3D = 0 (#174), but 0.9.2's pick by 0x4829 did not
+   help bh2rsj's. The values as RadioFoundry found and
    checked them on two such radios (FM both ways, DMR both ways; its docs/spec/hardware-dm32.md 8.10 and
    drivers/rf/fd6818/fd6818_setup_b.c, MIT, the DM-1801 Pro's FD6818 set-up): 0x37 bit 15 (0x9D1F), an extra 0x0200
    step into receive and transmit, no 0x1A band word and 0x40 = 0x34F0, DMR's 0x47 / 0x48 = 0x6943 / 0xB2FD with the

@@ -33,7 +33,7 @@
 #include <stdint.h>
 
 // The FD6818 RF transceiver (a BK4819: ID 0x4819), on the classic DM-32 RF section (set-up A) or the newer one
-// (set-up B: other tables; fd6818.c)
+// (set-up B: other tables, ID 0x4829 on one such radio; fd6818.c)
 // (OpenDM32 hardware/AT1846S.c and radioHardwareInterface.c):
 // 16-bit registers on a soft SPI (GPIO 0x07 clock, 0x08 data, 0x18 chip select). Only the radio service uses it.
 // Frequencies in 10 Hz units (the chip takes them as they are). Tones as the codeplug holds them (services/tones.h).

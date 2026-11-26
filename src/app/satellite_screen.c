@@ -187,6 +187,8 @@ static void enter(void *arg)
         predicted_shown = 0;
         if (has_clock && has_location && (satellite_load() > 0)) {
             satellite_predict_start(datetime_now());
+            predicted = satellite_predict_step(datetime_now(), 0); // kept from the last visit: the list at once
+            predicted_shown = satellite_predicted_count();
         }
     }
     if (has_clock && has_location && (satellite_count() > 0)) {

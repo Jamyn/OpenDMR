@@ -176,6 +176,11 @@ void trx_set_frequency(uint32_t frequency, bool wide)
     drv->rx_on();
 }
 
+void trx_tune(uint32_t frequency)
+{
+    drv->tune(frequency);
+}
+
 void trx_receive(bool wide)
 {
     drv->idle();

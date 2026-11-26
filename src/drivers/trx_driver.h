@@ -77,6 +77,9 @@ typedef struct {
     void (*set_band)(uint32_t frequency);
     void (*set_frequency)(uint32_t frequency);
     void (*rx_on)(void); // from idle
+    // Receiving, to a frequency a little apart (the same band, trx_tune()): without going idle, the noise and signal
+    // readings not started over
+    void (*tune)(uint32_t frequency);
     void (*transmit_prepare)(void);
     void (*tx_on)(void); // FM, from idle
     void (*set_mic_gain)(uint8_t gain);

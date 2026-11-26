@@ -117,6 +117,19 @@ void fd68xx_set_frequency(uint32_t frequency)
     trx_spi_write(0x39, (uint16_t)(frequency >> 16));
 }
 
+// The frequency, then receive written again without and with the VCO calibration bit (REG_CONTROL bit 15), not idle
+// between: the synthesizer moves and locks in about 1.3 ms, the noise and signal readings go on (idle then receive
+// started them over: the noise at its top, 120, back down after 15 to 20 ms; the FD6818, measured 2026-11-26). The
+// frequency alone isn't taken. As BK4819_TuneTo() (not precise) of fagci's UV-K5 firmwares
+#define CONTROL_VCO_CALIBRATION 0x8000
+
+void fd68xx_tune(uint32_t frequency)
+{
+    fd68xx_set_frequency(frequency);
+    trx_spi_write(REG_CONTROL, CONTROL_RX & (uint16_t)~CONTROL_VCO_CALIBRATION);
+    trx_spi_write(REG_CONTROL, CONTROL_RX);
+}
+
 uint16_t fd68xx_read_id(void)
 {
     if (!id_read) {

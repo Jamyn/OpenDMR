@@ -58,6 +58,10 @@ void trx_set_demod(trx_demod_t demod);
 
 // radioSetFrequency(): AF muted, the band, the frequency, the bandwidth, receive on
 void trx_set_frequency(uint32_t frequency, bool wide);
+// Receiving, to a frequency a little apart (the same band and bandwidth: the satellites' Doppler correction, the VFO
+// tuned): the receiver moved without going idle, the noise and signal readings go on (trx_set_frequency() starts them
+// over: the noise at its top for 15 to 20 ms)
+void trx_tune(uint32_t frequency);
 void trx_receive(bool wide);  // receive on (radioSetRx(), radioSetIF())
 void trx_idle(void);          // neither receive nor transmit (the audio muted)
 // Transmit (radioSetTx()), the frequency set before: the transmit settings, then (after the baseband) transmit on

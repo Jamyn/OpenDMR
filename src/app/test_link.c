@@ -224,7 +224,11 @@ static uint32_t state(char *text, uint32_t size)
     put(&o, "noise", "%u", (unsigned)radio_noise());       // FD6818 0x65, the last reading
     put(&o, "lockouts", "%u,%u,%d", (unsigned)scan_skipped_channels.count, (unsigned)scan_skipped_frequencies.count,
         scan_saved_count());
-    put(&o, "rf_chip", "%04x", (unsigned)fd6818_chip_id()); // 4819 FD6818, 4829 FD6818B
+    uint16_t rf_id, rf_3d;
+
+    fd6818_start_ids(&rf_id, &rf_3d);
+    put(&o, "rf_setup", "%c", fd6818_setup()); // A the classic RF section, B the newer one, - none locked
+    put(&o, "rf_chip", "%04x,%04x", (unsigned)rf_id, (unsigned)rf_3d); // FD6818 0x00 and 0x3D at start
     put(&o, "aprs_via", "%u", (unsigned)extra_options_aprs_via());
     put(&o, "aprs_gateway", "%u", (unsigned)extra_options_aprs_dmr_gateway());
     uint32_t flags;

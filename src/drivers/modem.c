@@ -35,6 +35,7 @@
 #include "hw.h"
 #include "hal.h"
 #include "modem.h"
+#include "fd6818.h"
 
 // Baseband (MODEM_REG_BASE, C7000_DRV.h)
 #define AUDIO_CONTROL    REG(MODEM_REG_BASE + 0x0080) // [31] prompt FIFO full, [7] prompt path, [6] FM audio path
@@ -81,6 +82,7 @@
 #define WORK_MODE_FM       0x80
 #define WORK_MODE_FM_TX    0xEE // stock, transmitting FM
 #define RF_MODE_DIRECT     0x03269860 // RF_MODE bit 11 in direct mode (stock 0x301d9c0)
+#define RF_MODE_RX_INVERT  0x00008000 // the receive inversion: clear on the newer RF section (fd6818_rx_inverted())
 // RF_CONTROL: byte 0 the receive start, byte 1 the Tx interrupt ahead of the burst, in bits (104 us). Direct mode had
 // 0x0A (1.04 ms), too short for the PA to settle before the data: the first voice frame of each burst came out bad
 // (measured 2026-11-10: 77 % of them at UHF). 0x1F as the stock repeater mode (3.2 ms) with the stock 1.6 ms wait puts
@@ -129,7 +131,7 @@ void modem_init(void)
 
     RF_CONTROL = RF_CONTROL_DIRECT;
     modem_set_frequency_calibration(false, 0, 0, 0);
-    RF_MODE = RF_MODE_DIRECT;
+    RF_MODE = RF_MODE_DIRECT & (fd6818_rx_inverted() ? ~0u : ~RF_MODE_RX_INVERT);
     DEV_LIMITER = 0x0000FF00;
     RSSI_BIAS_VALUE = 0x00001381;
     WORK_MODE = WORK_MODE_FM;

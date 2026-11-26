@@ -79,6 +79,7 @@ static volatile uint8_t scan_peak;
 static volatile uint16_t scan_samples;
 static TickType_t scan_settled_at;
 static TickType_t settled_at;           // after a channel change, the squelch may open from then on
+static TickType_t retuned_until;        // after an only retuned channel, the squelch doesn't close until then
 static uint8_t css_missing = 0;
 static uint8_t signal_low = 0; // AM, SSB: checks in a row the signal was under the closing level
 static bool rx_end_beep = false; // the carrier end beep is waiting
@@ -245,6 +246,24 @@ void apply_channel(void)
     tune_channel(&next, valid);
 }
 
+#define RETUNE_ONLY_MAX 5000 // 50 kHz (10 Hz units): farther, the whole set up (another band's LNA, calibration)
+#define RETUNE_HOLD_MS  100  // the FD6818 relocking: its noise reading high a moment, not a lost signal
+
+// The same channel but its frequencies, a little apart (the satellites' Doppler correction, the VFO tuned)
+static bool only_retuned(const codeplug_channel_t *next)
+{
+    static codeplug_channel_t moved; // not on the radio task's stack
+    int32_t apart = (int32_t)(next->rx_freq - rs.channel.rx_freq);
+
+    if ((apart > RETUNE_ONLY_MAX) || (apart < -RETUNE_ONLY_MAX)) {
+        return false;
+    }
+    memcpy(&moved, &rs.channel, sizeof(moved));
+    moved.rx_freq = next->rx_freq;
+    moved.tx_freq = next->tx_freq;
+    return memcmp(&moved, next, sizeof(moved)) == 0;
+}
+
 // The radio set up on a channel: the one asked for, or the beacon's frequency for a frame (radio_aprs.c)
 void tune_channel(const codeplug_channel_t *next, bool valid)
 {
@@ -252,6 +271,18 @@ void tune_channel(const codeplug_channel_t *next, bool valid)
     bool was_analog = is_analog();
 
     eco_reset(); // the channel is set up receiving: the power saving starts over
+
+    // An analog channel only retuned: the receiver moved as it is, the squelch and the speaker left as they are (the
+    // whole set up below closed the squelch at each step: a gap and a click in a satellite's downlink every few
+    // seconds, #104)
+    if (valid && rs.has_channel && was_analog && only_retuned(next)) {
+        rs.channel.rx_freq = next->rx_freq;
+        rs.channel.tx_freq = next->tx_freq;
+        lna(true, rs.channel.rx_freq);
+        trx_set_frequency(rs.channel.rx_freq, is_wide());
+        retuned_until = xTaskGetTickCount() + pdMS_TO_TICKS(RETUNE_HOLD_MS);
+        return;
+    }
 
     // P25: the modem back to DMR while the channel changes (p25_radio.c), started again below on a P25 channel
     if (rs.p25_running) {
@@ -550,6 +581,9 @@ void RAM_CODE squelch_check(void)
             signal_low++;
         }
         close = (signal_low >= hold);
+    }
+    if ((int32_t)(xTaskGetTickCount() - retuned_until) < 0) {
+        close = false; // just retuned: the reading of the relocking receiver
     }
     if (!rs.has_carrier && open && ((int32_t)(xTaskGetTickCount() - settled_at) >= 0)) {
         rs.has_carrier = true;

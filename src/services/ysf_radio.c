@@ -95,6 +95,7 @@ volatile uint32_t ysf_frame_log_n;
 static volatile uint8_t tx_dgid; // the channel's (transmitted; any received, the call's shown)
 static ysf_call_t call;
 static TickType_t last_frame;
+static uint32_t rx_frames_logged; // CC frames of the call in the delay log (p25_radio.c)
 static volatile TickType_t heard_at;
 static volatile bool heard;
 
@@ -112,6 +113,7 @@ static void call_begin(void)
     if (!call.active) {
         memset(&call, 0, sizeof(call));
         call.active = true;
+        rx_frames_logged = 0;
         last_frame = xTaskGetTickCount();
         vocoderReset();
         voice_play_prepare(); // the speaker on while the voice comes
@@ -197,6 +199,7 @@ static void on_frame(void)
         if (!rx.fich_ok) {
             return;
         }
+        p25_ev_log(62, 0); // the delay log (p25_radio.c): a header received
         call_begin();
         last_frame = xTaskGetTickCount();
         call.muted = !vd;
@@ -215,6 +218,9 @@ static void on_frame(void)
         return;
     }
     call_begin();
+    if (rx_frames_logged < 3) {
+        p25_ev_log(63, (uint16_t)rx_frames_logged++); // a V/D frame received, before its decoding
+    }
     last_frame = xTaskGetTickCount();
     call.muted = !vd;
     call.dgid = f->sc;
@@ -280,6 +286,7 @@ static void rx_init(void)
    the frame finished with silence, the terminator; once sent, back to receive. */
 static void transmit(void)
 {
+    p25_ev_log(60, 0); // the delay log (p25_radio.c): YSF transmit() begins (the mic on)
     vocoderReset();
     afrx_fifo_prepare(ysf_tx_dev);
     ysf_tx_stats[0]++;
@@ -301,6 +308,7 @@ static void transmit(void)
     ysf_tx_hc_tc(&f, YSF_FI_HC, dst, src, tx_dibits);
     p25_phy_tx_put(tx_dibits, YSF_FRAME_DIBITS);
     bool started = afrx_fifo_key(ysf_tx_low_power != 0);
+    p25_ev_log(61, started); // the preamble and the header in, keyed
     int16_t mic[160];
     int halves = 0, nf = 0, fn = 0;
     bool ending = false;
@@ -340,6 +348,9 @@ static void transmit(void)
         ysf_vd2_dch(fn, dst, src, NULL, dch);
         ysf_tx_vd2(&f, dch, (const uint8_t(*)[9])tx_ambe, tx_dibits);
         p25_phy_tx_put(tx_dibits, YSF_FRAME_DIBITS);
+        if (ysf_tx_stats[1] < 3) {
+            p25_ev_log(64, (uint16_t)ysf_tx_stats[1]); // a V/D frame into the FIFO (arg: its number in the call)
+        }
         fn = (fn >= 6) ? 0 : fn + 1;
         ysf_tx_stats[1]++;
     }

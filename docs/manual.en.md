@@ -682,7 +682,8 @@ Once the stock sector is back (a backup written back, for example), it is used a
 - On a main screen, **SK1 held alone** (about half a second, then released) locks the keypad too; Key settings →
   Lock moves it to other keys. Held with another key (SK1 + ▲ ...) it doesn't lock. SK2 held is a modifier (Delete
   in the messages, Close in the dual watch) and doesn't lock.
-- While locked, a key shows the lock page for a moment; **SK1 + \*** unlocks (SK2 + \* can't be pressed on the
+- Locking and unlocking show a bubble (a closed / open padlock); while locked an amber padlock stays on the status
+  bar. A key pressed while locked shows "Locked SK1 + * to unlock" again; **SK1 + \*** unlocks (SK2 + \* can't be pressed on the
   DM-32: a held SK2 hides the keys 1, 4, 7, \*). With only the keypad locked the PTT still transmits.
 - General options → Auto lock: locks the keypad and the PTT after a time without use.
 - While the cable is in use (CPS, firmware update) the radio doesn't lock, and the auto lock time starts again after

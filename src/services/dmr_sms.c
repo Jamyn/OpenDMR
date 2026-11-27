@@ -84,7 +84,7 @@ static uint32_t utf8_next(const char **p, const char *end)
     for (int i = 1; i <= n; i++) {
         // a lead octet with too few octets left is Latin-1, as one with a bad continuation octet is: received data
         // ends where the caller says, not where a continuation octet happens to stop (the pad and the CRC follow)
-        if ((&(*p)[i] >= end) || ((s[i] & 0xC0) != 0x80)) {
+        if (((end - (const char *)s) <= i) || ((s[i] & 0xC0) != 0x80)) {
             *p += 1;
             return s[0];
         }

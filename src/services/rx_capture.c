@@ -27,10 +27,10 @@
  */
 
 /*
- * OpenDMR, service (debug): the received AMBE frames to the data flash (rx_capture.h). The decoder fills one of two
- * 4 KB RAM sectors; a low priority task writes a full one, or the one being filled 1 s after the last frame (the end
- * of a call: the rest erased). The HR_C7000 task never waits for the flash: when both sectors wait, frames are dropped
- * (counted in rx_capture_dropped).
+ * OpenDMR, service (debug): the received AMBE frames to the data flash (rx_capture.h). The decoder fills a 4 KB RAM
+ * sector (BUFFERS); a low priority task writes it when full, or 1 s after the last frame (the end of a call: the rest
+ * erased). The HR_C7000 task never waits for the flash: while the sector is written, frames are dropped (counted in
+ * rx_capture_dropped).
  */
 
 #include "rx_capture.h"
@@ -50,7 +50,12 @@
 #define NO_SEQ           0xFFFFFFFFUL
 #define SEQ_MASK         0xFFFFFFUL // 3 bytes
 
-static uint8_t buffers[2][FLASH_SECTOR_SIZE];
+// One buffer since the RAM map filled up (two no longer link): the frames of the tens of milliseconds a sector
+// takes are lost and counted in rx_capture_dropped, which tools/debug/rx_capture.py reads. Two would also need the
+// hand-off back in rx_capture_frame(): a sector full while the other is written now waits for the idle flush.
+#define BUFFERS 1
+
+static uint8_t buffers[BUFFERS][FLASH_SECTOR_SIZE];
 static volatile int filling;         // the buffer the decoder fills
 static volatile int count;           // records in it
 static volatile int full = -1;       // a buffer to write, -1: none
@@ -78,14 +83,9 @@ void rx_capture_frame(const uint8_t ambe[9], int kind)
     }
     taskENTER_CRITICAL();
     if (count >= RECORDS) {
-        if (full >= 0) {
-            rx_capture_dropped++; // both buffers wait for the flash
-            taskEXIT_CRITICAL();
-            return;
-        }
-        full = filling;
-        filling ^= 1;
-        count = 0;
+        rx_capture_dropped++; // the buffer is in the flash (and with two, both of them are)
+        taskEXIT_CRITICAL();
+        return;
     }
     uint8_t *r = &buffers[filling][count * RECORD_SIZE];
     uint32_t ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
@@ -103,8 +103,10 @@ void rx_capture_frame(const uint8_t ambe[9], int kind)
     bool wake = (count >= RECORDS) && (full < 0);
     if (wake) {
         full = filling;
-        filling ^= 1;
-        count = 0;
+        filling = (filling + 1) % BUFFERS;
+        if (BUFFERS > 1) {
+            count = 0; // the next buffer is free; with one, the task frees it when the flash is written
+        }
     }
     taskEXIT_CRITICAL();
     if (wake) {
@@ -157,8 +159,8 @@ static void capture_task(void *arg)
             memset(&buffers[filling][count * RECORD_SIZE], 0xFF, (RECORDS - count) * RECORD_SIZE);
             b = filling;
             full = b;
-            filling ^= 1;
-            count = 0;
+            filling = (filling + 1) % BUFFERS;
+            count = (BUFFERS > 1) ? 0 : RECORDS; // one buffer: no room in it until it is written
         }
         taskEXIT_CRITICAL();
         if (b >= 0) {
@@ -166,6 +168,9 @@ static void capture_task(void *arg)
             memset(buffers[b], 0xFF, FLASH_SECTOR_SIZE);
             taskENTER_CRITICAL();
             full = -1;
+            if (BUFFERS == 1) {
+                count = 0; // the buffer is free again: the frames of the write are the dropped ones
+            }
             taskEXIT_CRITICAL();
         }
     }

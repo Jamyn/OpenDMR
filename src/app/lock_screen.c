@@ -51,8 +51,10 @@
 #include "lock_screen.h"
 #include "cable_link.h"
 #include "sound.h"
+#include "ui.h"
 
 #define SHOW_MS  1000
+#define NOTICE_MS 1500 // the lock / unlock bubbles (ui_notify())
 #define CLOCK_MS 5000 // the lock screen's clock
 #define TIME_Y   70
 #define TEXT_Y   150
@@ -71,8 +73,22 @@ static bool lock_screen_stays(void)
     return keypad_locked && security_lock_pin_on();
 }
 
+// The state as a bubble over the home screen (#193: the page showed a second, then nothing told it was locked; the
+// status bar's padlock now does): locked and how to unlock, the PTT locked, or unlocked
 static void show(void)
 {
+    status_bar_set_locked(keypad_locked);
+    if (!lock_screen_stays()) {
+        if (keypad_locked) {
+            ui_notify(TEXT_LOCKED, TEXT_UI_UNLOCK_HINT, UI_NOTICE_LOCK, NOTICE_MS);
+        } else if (ptt_locked) {
+            ui_notify(TEXT_LOCKED, TEXT_PTT, UI_NOTICE_LOCK, NOTICE_MS);
+        } else {
+            ui_notify(TEXT_UNLOCKED, TEXT_COUNT, UI_NOTICE_UNLOCK, NOTICE_MS);
+        }
+        ui_redraw(); // the status bar's padlock
+        return;
+    }
     if (ui_top_screen() == &lock_page) {
         if (!lock_screen_stays()) {
             ui_timer_start(SHOW_MS); // shows already: again from now
@@ -110,6 +126,7 @@ const ui_screen_t *lock_screen_start(void)
         keypad_locked = true;
         ptt_locked = true;
         security_set_locked(true);
+        status_bar_set_locked(true);
         return &lock_page;
     }
     return NULL;

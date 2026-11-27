@@ -60,6 +60,9 @@
 
 static bool keypad_locked = false;
 static bool ptt_locked = false;
+// SK1 + * unlocked: that SK1's release is swallowed. The * went to the lock, not to keymap.c, so keymap.c would take
+// the SK1 released after a long hold for "SK1 held alone" (the lock, by default) and lock again at once (#193)
+static bool swallow_sk1;
 static const ui_screen_t lock_page;
 
 // Locked with the lock PIN: the lock page stays (the lock screen) instead of showing a moment
@@ -136,6 +139,14 @@ bool lock_screen_filter(const ui_event_t *ev)
     if (!is_key(ev)) {
         return false;
     }
+    if (swallow_sk1 && (ev->key == UI_KEY_SK1)) {
+        if (ev->type == UI_EVENT_KEY_PRESS) {
+            swallow_sk1 = false; // a new press: released unseen (the cable's keys), this one is the user's
+        } else {
+            swallow_sk1 = (ev->type != UI_EVENT_KEY_RELEASE);
+            return true;
+        }
+    }
     if (ev->key == UI_KEY_PTT) {
         if (ptt_locked && (ev->type == UI_EVENT_KEY_PRESS)) {
             show();
@@ -149,6 +160,7 @@ bool lock_screen_filter(const ui_event_t *ev)
         return true;
     }
     if ((ev->key == UI_KEY_STAR) && (ev->modifiers & UI_MODIFIER_SK1)) {
+        swallow_sk1 = true; // still held
         if (security_lock_pin_on()) {
             pin_screen_unlock(-1); // right: lock_screen_unlock()
         } else {

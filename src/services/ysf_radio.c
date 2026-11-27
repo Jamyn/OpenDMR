@@ -64,8 +64,10 @@
 #include "afrx.h"
 
 #define PCM_FRAMES    16  // 320 ms of decoded voice
-#define PLAY_START    5   // frames queued before the playback starts: they come 5 at a time every 100 ms (a YSF
-#define PLAY_START_MS 10  // frame, decoded once its last part is read): one frame's, kept this long
+#define PLAY_START    1   // frames queued before the playback starts, and the time from the first: the voice segments
+#define PLAY_START_MS 40  // come 15 ms apart within a frame, 40 ms between frames, read in halves of 32 ms (decoded as
+                          // they come, ysf_core.c); simulated: 40 ms leave ~12 ms (a frame's 5 at once and 10 ms ran
+                          // out every ~0.8 s)
 #define CALL_TIMEOUT  350 // ms without a frame: the call ended (a frame is 100 ms)
 #define VOICE_BAD     9   // V/D mode 2: a voice frame with more triplets split than this (of 27) played as silence
 #define TX_LEAD_MAX   480 // dibits of preamble at most
@@ -75,7 +77,9 @@
 volatile ysf_radio_stats_t ysf_radio_stats;
 // the 4FSK level (MODEM_MOD_SCALE_ONE 1024: P25's +-1.8 kHz) for YSF's +-2.7 kHz (wide; the standard's narrow is half)
 volatile uint32_t ysf_tx_dev = 1536;
-volatile uint32_t ysf_tx_lead = 240;   // dibits of preamble (+3 -3) before the header (50 ms; an FTM-400D: ~42 ms)
+// dibits of preamble (+3 -3) before the header: 40 ms (an FTM-400D: ~42 ms). The first V/D frame is ready ~126 ms after
+// the PTT and must be in the FIFO a block (30 ms) before the header has gone: 20 ms ran it dry (frames shifted, lost)
+volatile uint32_t ysf_tx_lead = 192;
 volatile uint32_t ysf_tx_low_power;    // not 0: 50 mW (tests with the radios side by side)
 volatile uint32_t ysf_tx_stats[4];     // calls, frames, the longest AMBE encoding (us), underruns (the last call's)
 
@@ -174,15 +178,15 @@ static void log_frame(void)
     ysf_frame_log_n++;
 }
 
-static void on_frame(void)
+static bool taken; // the frame being read belongs to the call (its FICH said so): its voice played, its DCH read
+
+// a frame's FICH in (ysf_core.c decodes a frame as it comes): the call begins or ends now, not at the frame's end
+static void on_fich(void)
 {
     const ysf_fich_t *f = &rx.fich;
+    taken = false;
     ysf_radio_stats.frames++;
     ysf_radio_stats.fich_bad = rx.fich_bad;
-    ysf_radio_stats.dch_bad = rx.dch_bad;
-    ysf_radio_stats.rep_err = rx.rep_err;
-    ysf_radio_stats.rep_bits = rx.rep_bits;
-    log_frame();
     if ((tx_dgid != 0) && (f->sc != tx_dgid)) { // another DG-ID than the channel's: counted, played all the same
         ysf_radio_stats.other_dgid++;
     }
@@ -195,49 +199,62 @@ static void on_frame(void)
         }
         return;
     }
-    if (f->fi == YSF_FI_HC) {
-        if (!rx.fich_ok) {
-            return;
-        }
-        p25_ev_log(62, 0); // the delay log (p25_radio.c): a header received
-        call_begin();
-        last_frame = xTaskGetTickCount();
-        call.muted = !vd;
-        call.dgid = f->sc;
-        if (rx.dch_ok[0]) {
-            set_text(call.dst, rx.dch[0]);
-            set_text(call.src, rx.dch[0] + YSF_CALL_LEN);
-        }
+    if ((f->fi != YSF_FI_HC) && (f->fi != YSF_FI_CC)) {
         return;
     }
-    if (f->fi != YSF_FI_CC) {
-        return;
-    }
-    // late entry: a frame whose FICH decoded (a guessed one only within a call)
+    // a header, or late entry: a frame whose FICH decoded (a guessed one only within a call)
     if (!call.active && !rx.fich_ok) {
         return;
     }
-    call_begin();
-    if (rx_frames_logged < 3) {
-        p25_ev_log(63, (uint16_t)rx_frames_logged++); // a V/D frame received, before its decoding
+    if (f->fi == YSF_FI_HC) {
+        p25_ev_log(62, 0); // the delay log (p25_radio.c): a header's FICH received
+    } else if (rx_frames_logged < 3) {
+        p25_ev_log(63, (uint16_t)rx_frames_logged++); // a V/D frame's FICH received
     }
+    call_begin();
+    taken = true;
     last_frame = xTaskGetTickCount();
     call.muted = !vd;
     call.dgid = f->sc;
-    if ((rx.dch_n == 1) && rx.dch_ok[0]) {
-        if (f->dt == YSF_DT_VD2) { // 10 bytes by the frame number: 0 the destination, 1 the caller
-            if (f->fn == 0) {
-                set_text(call.dst, rx.dch[0]);
-            } else if (f->fn == 1) {
-                set_text(call.src, rx.dch[0]);
-            }
-        } else if (f->fn == 0) { // V/D mode 1: CSD1 in frame 0
-            set_text(call.dst, rx.dch[0]);
-            set_text(call.src, rx.dch[0] + YSF_CALL_LEN);
-        }
+}
+
+// a voice segment of a V/D frame in: played at once
+static void on_voice(void)
+{
+    if (!taken) {
+        return;
     }
-    for (int j = 0; j < rx.voices; j++) {
-        voice(rx.voice[j], (f->dt == YSF_DT_VD1) ? (rx.voice_err[j] <= 6) : (rx.voice_err[j] <= VOICE_BAD));
+    int j = rx.voice_j;
+    last_frame = xTaskGetTickCount();
+    voice(rx.voice[j], (rx.fich.dt == YSF_DT_VD1) ? (rx.voice_err[j] <= 6) : (rx.voice_err[j] <= VOICE_BAD));
+}
+
+// the frame's end: the callsigns from its data channel(s)
+static void on_end(void)
+{
+    const ysf_fich_t *f = &rx.fich;
+    if (rx.voices == 5) { // the last voice segment: in with the frame's end
+        on_voice();
+    }
+    ysf_radio_stats.dch_bad = rx.dch_bad;
+    ysf_radio_stats.rep_err = rx.rep_err;
+    ysf_radio_stats.rep_bits = rx.rep_bits;
+    log_frame();
+    if (!call.active || !rx.dch_ok[0] || ((f->fi != YSF_FI_HC) && !taken)) {
+        return;
+    }
+    if (f->fi == YSF_FI_HC) { // CSD1: the destination, the caller
+        set_text(call.dst, rx.dch[0]);
+        set_text(call.src, rx.dch[0] + YSF_CALL_LEN);
+    } else if (f->dt == YSF_DT_VD2) { // 10 bytes by the frame number: 0 the destination, 1 the caller
+        if (f->fn == 0) {
+            set_text(call.dst, rx.dch[0]);
+        } else if (f->fn == 1) {
+            set_text(call.src, rx.dch[0]);
+        }
+    } else if ((f->dt == YSF_DT_VD1) && (f->fn == 0)) { // V/D mode 1: CSD1 in frame 0
+        set_text(call.dst, rx.dch[0]);
+        set_text(call.src, rx.dch[0] + YSF_CALL_LEN);
     }
 }
 
@@ -249,8 +266,14 @@ static void on_dibit(void *ctx, int d)
         return;
     }
     switch (ysf_rx_dibit(&rx, (uint8_t)d)) {
+    case YSF_RX_FICH:
+        on_fich();
+        break;
+    case YSF_RX_VOICE:
+        on_voice();
+        break;
     case YSF_RX_FRAME:
-        on_frame();
+        on_end();
         break;
     case YSF_RX_LOST:
         ysf_radio_stats.lost++;

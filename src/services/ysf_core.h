@@ -51,7 +51,10 @@ void ysf_fich_unpack(const uint8_t in[4], ysf_fich_t *f);
 
 typedef enum {
     YSF_RX_NONE,
-    YSF_RX_FRAME, // a frame decoded: its FICH in fich (fich_ok), what it carries below
+    YSF_RX_FICH,  // a frame's FICH in (decoded: fich_ok, or guessed within a call): fich, sync_wrong
+    YSF_RX_VOICE, // a V/D frame's voice segment voice_j in: voice[voice_j], voice_err[voice_j]
+    YSF_RX_FRAME, // the frame's end: its data channel(s) below (dch_n); a V/D frame's last voice segment (voice_j 4,
+                  // voices 5) in with it
     YSF_RX_LOST,  // the frames' sync lost (frames in a row without sync and FICH)
 } ysf_rx_event_t;
 
@@ -61,6 +64,8 @@ typedef struct {
     uint16_t pos;       // dibits of the frame collected (0: waiting for a sync)
     uint16_t since;     // locked: dibits since the last frame's start
     uint8_t misses;     // locked: frames in a row without their sync and FICH
+    bool discard;       // the frame being read has no FICH: read to its end (its place kept), dropped
+    bool vd;            // the frame being read is V/D (mode 1 or 2): its voice segments decoded as they come
     uint8_t dib[YSF_FRAME_DIBITS];
     // the last frame's results
     bool fich_ok;
@@ -70,7 +75,8 @@ typedef struct {
     uint8_t dch_n;       // its data channels decoded: 0 (none / VW), 1 (V/D), 2 (HC, TC, data FR)
     bool dch_ok[2];      // their CRC
     uint8_t dch[2][20];  // V/D mode 2: 10 bytes, the others 20
-    uint8_t voices;      // AMBE+2 frames (V/D 1 and 2): 5, else 0
+    uint8_t voices;      // AMBE+2 frames of the frame decoded so far (V/D 1 and 2: 5 at its end), else 0
+    uint8_t voice_j;     // the voice segment just decoded (YSF_RX_VOICE)
     uint8_t voice[5][9]; // as DMR's 72-bit frames (the vocoder's input)
     uint8_t voice_err[5]; // V/D 2: triplets not unanimous (of 27); V/D 1: Golay corrections
     // counters

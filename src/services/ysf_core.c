@@ -41,6 +41,8 @@
  * The receiver: hunting, a frame starts at a sync with 3 dibits wrong at most; a frame with a good FICH locks it, the
  * next frame then expected 480 dibits on whatever its sync. A FICH that fails while locked is guessed from the last
  * (the frame number one on), as long as the sync is near right; MAX_MISSES frames in a row without both: lost.
+ * A frame is decoded as it comes: its FICH once in (YSF_RX_FICH), each voice segment once in (YSF_RX_VOICE: the first
+ * 60 ms before the frame's end), the data channel(s) at the end (YSF_RX_FRAME).
  */
 
 #include <string.h>
@@ -352,6 +354,8 @@ void ysf_rx_init(ysf_rx *r)
 void ysf_rx_reset(ysf_rx *r)
 {
     r->locked = false;
+    r->discard = false;
+    r->vd = false;
     r->pos = 0;
     r->since = 0;
     r->misses = 0;
@@ -363,14 +367,19 @@ static void start_frame(ysf_rx *r)
         r->dib[i] = (uint8_t)((r->sh >> (2 * (19 - i))) & 3);
     }
     r->pos = YSF_SYNC_DIBITS;
+    r->vd = false;
+    r->discard = false;
 }
 
-static ysf_rx_event_t frame(ysf_rx *r)
+// FICH_END: the FICH is in (dibits 0 .. 119); voice segment j of a V/D frame is in at VOICE_END(j) (its bits end at
+// 240 + 144 j + 143, in V/D mode 1 and 2 alike)
+#define FICH_END     120
+#define VOICE_END(j) (192 + 72 * (j))
+
+// the sync and FICH in: the frame's FICH decoded (or guessed), the lock judged
+static ysf_rx_event_t fich_in(ysf_rx *r)
 {
     const uint8_t *f = r->dib;
-    uint8_t d49[49];
-    r->pos = 0;
-    r->since = 0;
     r->dch_n = 0;
     r->voices = 0;
     r->sync_wrong = 0;
@@ -384,10 +393,14 @@ static ysf_rx_event_t frame(ysf_rx *r)
     } else {
         r->fich_bad++;
         if (!r->locked || (r->sync_wrong > SYNC_GUESS)) {
+            r->discard = true; // the rest of it read and dropped: the next frame's place kept
             if (r->locked && (++r->misses >= MAX_MISSES)) {
                 ysf_rx_reset(r);
                 r->lost++;
                 return YSF_RX_LOST;
+            }
+            if (!r->locked) {
+                r->pos = 0; // hunting: a false sync
             }
             return YSF_RX_NONE;
         }
@@ -403,37 +416,59 @@ static ysf_rx_event_t frame(ysf_rx *r)
     r->misses = 0;
     r->frames++;
     const ysf_fich_t *h = &r->fich;
+    r->vd = (h->fi == YSF_FI_CC) && ((h->dt == YSF_DT_VD2) || (h->dt == YSF_DT_VD1));
+    return YSF_RX_FICH;
+}
+
+// voice segment j in (a V/D frame): decoded into voice[j] at once (not at the frame's end: 60 ms sooner for the first)
+static ysf_rx_event_t voice_in(ysf_rx *r, int j)
+{
+    const uint8_t *f = r->dib;
+    uint8_t d49[49];
+    if (r->fich.dt == YSF_DT_VD2) {
+        r->voice_err[j] = (uint8_t)vd2_voice_get(f, j, d49);
+        r->rep_err += r->voice_err[j];
+        r->rep_bits += 27;
+        ambe_encode_frame(d49, r->voice[j]);
+    } else {
+        uint8_t *v = r->voice[j];
+        memset(v, 0, 9);
+        for (int i = 0; i < 72; i++) {
+            v[i >> 3] |= (uint8_t)(get_bit(f, 240 + 144 * j + 72 + i) << (7 - (i & 7)));
+        }
+        int e = ambe_decode_frame(v, d49);
+        r->voice_err[j] = (uint8_t)((e < 0) ? 255 : e);
+    }
+    r->voice_j = (uint8_t)j;
+    r->voices = (uint8_t)(j + 1);
+    return YSF_RX_VOICE;
+}
+
+// the whole frame in: its data channel(s)
+static ysf_rx_event_t frame_in(ysf_rx *r)
+{
+    const uint8_t *f = r->dib;
+    const ysf_fich_t *h = &r->fich;
+    r->pos = 0;
+    r->since = 0;
+    if (r->discard) {
+        r->discard = false;
+        return YSF_RX_NONE;
+    }
+    if (r->vd) { // its last voice segment ends with the frame: decoded here, given with YSF_RX_FRAME
+        voice_in(r, 4);
+    }
     if ((h->fi == YSF_FI_HC) || (h->fi == YSF_FI_TC) || (h->dt == YSF_DT_DFR)) {
         r->dch_n = 2;
         for (int k = 0; k < 2; k++) {
             r->dch_ok[k] = dch_get(f, 20, k, r->dch[k]);
             r->dch_bad += !r->dch_ok[k];
         }
-    } else if (h->dt == YSF_DT_VD2) {
+    } else if ((h->dt == YSF_DT_VD2) || (h->dt == YSF_DT_VD1)) {
+        int n = (h->dt == YSF_DT_VD2) ? 10 : 20;
         r->dch_n = 1;
-        r->dch_ok[0] = dch_get(f, 10, 0, r->dch[0]);
+        r->dch_ok[0] = dch_get(f, n, 0, r->dch[0]);
         r->dch_bad += !r->dch_ok[0];
-        r->voices = 5;
-        for (int j = 0; j < 5; j++) {
-            r->voice_err[j] = (uint8_t)vd2_voice_get(f, j, d49);
-            r->rep_err += r->voice_err[j];
-            r->rep_bits += 27;
-            ambe_encode_frame(d49, r->voice[j]);
-        }
-    } else if (h->dt == YSF_DT_VD1) {
-        r->dch_n = 1;
-        r->dch_ok[0] = dch_get(f, 20, 0, r->dch[0]);
-        r->dch_bad += !r->dch_ok[0];
-        r->voices = 5;
-        for (int j = 0; j < 5; j++) {
-            uint8_t *v = r->voice[j];
-            memset(v, 0, 9);
-            for (int i = 0; i < 72; i++) {
-                v[i >> 3] |= (uint8_t)(get_bit(f, 240 + 144 * j + 72 + i) << (7 - (i & 7)));
-            }
-            int e = ambe_decode_frame(v, d49);
-            r->voice_err[j] = (uint8_t)((e < 0) ? 255 : e);
-        }
     }
     return YSF_RX_FRAME;
 }
@@ -443,7 +478,19 @@ ysf_rx_event_t ysf_rx_dibit(ysf_rx *r, uint8_t dibit)
     r->sh = ((r->sh << 2) | (dibit & 3)) & MASK40;
     if (r->pos) {
         r->dib[r->pos++] = dibit & 3;
-        return (r->pos == YSF_FRAME_DIBITS) ? frame(r) : YSF_RX_NONE;
+        if (r->pos == YSF_FRAME_DIBITS) {
+            return frame_in(r);
+        }
+        if (r->discard) {
+            return YSF_RX_NONE;
+        }
+        if (r->pos == FICH_END) {
+            return fich_in(r);
+        }
+        if (r->vd && (r->pos >= VOICE_END(0)) && (((r->pos - VOICE_END(0)) % 72) == 0)) { // segments 0 .. 3
+            return voice_in(r, (r->pos - VOICE_END(0)) / 72);
+        }
+        return YSF_RX_NONE;
     }
     if (r->locked) {
         // the next frame's sync ends 20 dibits after the last frame; an exact sync elsewhere: a new time line

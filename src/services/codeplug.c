@@ -41,6 +41,7 @@
 #include "flash.h"
 #include "codeplug.h"
 #include "power.h"
+#include "tones.h"
 
 #define FLASH_PART_OFFSET (128 * 1024)
 
@@ -311,6 +312,9 @@ static uint16_t css_from_codeplug(uint16_t tone)
 {
     if ((tone == 0) || (tone == CODEPLUG_CSS_NONE)) {
         return CODEPLUG_CSS_NONE;
+    }
+    if ((tone & TONES_DCS) && ((tone & TONES_DCS_CODE) == 0x345)) {
+        return (uint16_t)((tone & ~TONES_DCS_CODE) | 0x346); // D345 (not a DCS code) in older lists: D346 (#206)
     }
     return ((tone & 0xC000) == 0) ? (uint16_t)codeplug_bcd_to_int(tone) : tone;
 }

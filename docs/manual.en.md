@@ -50,7 +50,7 @@ All of these can be changed in Options → Key settings (see [12](#12-lock-quick
 
 | Keys | DMR | FM |
 |---|---|---|
-| # | Enter a talk group / private call number | Enter DTMF |
+| # | Enter a talk group / private call number (YSF: the DG-ID) | Enter DTMF |
 | SK2 + # | Contact list | DTMF contact list |
 | # long | Reverse repeater (channel mode only) | Same |
 | * | Timeslot | Bandwidth 12.5 / 25 kHz |
@@ -227,6 +227,9 @@ comes the target, `ALL`, with the CAN on the right of its line (e.g. `CAN 0`).
 
 - The **DG-ID** (0 - 99) is set in the channel details (on a YSF channel the colour code row becomes the DG-ID), 0 by
   default. It is transmitted; received calls are not filtered by it, all are played, the call screen shows theirs.
+- **#** on a main screen changes the DG-ID: the current one is shown, type the digits (the first one replaces it) or
+  ▲ ▼ +/- 1, the menu key sets it. On a channel it is for now (another channel or power off: the channel's own again),
+  on a VFO it is kept.
 - **Transmit**: V/D mode 2 (DN on Yaesu radios), always to ALL, from the callsign in the CPS's General settings. A call
   received shows the caller's callsign in large letters (joining a call late: the callsign after about half a second).
 - **Receive**: DN (V/D mode 2) and V/D mode 1 are played. VW (full rate voice, IMBE) is shown but not played (`VW` on

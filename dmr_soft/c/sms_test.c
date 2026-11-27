@@ -164,6 +164,13 @@ int main(void)
     check(!dmr_sms_build(&tx, DMR_SMS_MOTOROLA, 1, 2, false, longest, 0, true), "141 refused");
     check(dmr_sms_units("a\xe4\xb8\xad\xf0\x9f\x98\x80") == 4, "UTF-16 units: a 中 😀 = 4");
 
+    // 7. a UTF-8 text (DD 0x12) cut after a lead octet: read up to its length, not into the CRC after it
+    unhex("61 62 c3 b9 3a 07", got); // "ab", a lead octet C3; then the CRC-32, whose first octet B9 continues it
+    p = (dmr_data_rx_t){.dpf = DMR_DPF_DEFINED, .sap = DMR_SAP_SHORT_DATA, .data = got, .length = 3};
+    p.head[8] = (uint8_t)(0x12 << 2);
+    check(dmr_sms_decode(&p, &rx) && !strcmp(rx.text, "ab\xc3\x83"), "UTF-8 cut short: ab\xc3\x83 (C3 as Latin-1)");
+    printf("  text \"%s\"\n", rx.text);
+
     printf("%s\n", failures ? "FAILED" : "all passed");
     return failures != 0;
 }

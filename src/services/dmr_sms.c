@@ -62,8 +62,8 @@
 
 /* ---- UTF-8 <-> UTF-16 ---- */
 
-// the next code point of a UTF-8 text (malformed octets taken as Latin-1), 0 at its end
-static uint32_t utf8_next(const char **p)
+// the next code point of a UTF-8 text up to end (malformed octets taken as Latin-1), 0 at its end
+static uint32_t utf8_next(const char **p, const char *end)
 {
     const uint8_t *s = (const uint8_t *)*p;
     uint32_t c = s[0];
@@ -82,7 +82,9 @@ static uint32_t utf8_next(const char **p)
         c &= 0x07;
     }
     for (int i = 1; i <= n; i++) {
-        if ((s[i] & 0xC0) != 0x80) {
+        // a lead octet with too few octets left is Latin-1, as one with a bad continuation octet is: received data
+        // ends where the caller says, not where a continuation octet happens to stop (the pad and the CRC follow)
+        if (((end - (const char *)s) <= i) || ((s[i] & 0xC0) != 0x80)) {
             *p += 1;
             return s[0];
         }
@@ -96,7 +98,8 @@ int dmr_sms_units(const char *utf8)
 {
     int n = 0;
     uint32_t c;
-    while ((c = utf8_next(&utf8)) != 0) {
+    const char *end = utf8 + strlen(utf8);
+    while ((c = utf8_next(&utf8, end)) != 0) {
         n += (c > 0xFFFF) ? 2 : 1;
     }
     return n;
@@ -166,7 +169,8 @@ static int utf8_to_utf16le(const char *utf8, uint8_t *out, int max_units)
 {
     int n = 0;
     uint32_t c;
-    while ((c = utf8_next(&utf8)) != 0) {
+    const char *end = utf8 + strlen(utf8);
+    while ((c = utf8_next(&utf8, end)) != 0) {
         uint16_t u[2];
         int k = 1;
         if (c > 0xFFFF) {
@@ -340,7 +344,7 @@ static bool defined(const dmr_data_rx_t *p, dmr_sms_rx_t *out)
             uint32_t c;
             if (dd == DD_UTF8) {
                 const char *q = &s[i];
-                c = utf8_next(&q);
+                c = utf8_next(&q, &s[n]);
                 i = (int)(q - s);
             } else {
                 c = d[i++] & ((dd == DD_7BIT) ? 0x7F : 0xFF);

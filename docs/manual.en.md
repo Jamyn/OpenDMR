@@ -62,7 +62,7 @@ All of these can be changed in Options → Key settings (see [12](#12-lock-quick
 | SK2 + ▲ / ▼ | Zone + / − (channel mode); which frequency ▲ ▼ and the knob change, RX or TX (VFO) | Same |
 | SK2 alone | Call back the talk group just heard | — |
 | SK1 alone | FM broadcast radio | Same |
-| SK1 held alone | Lock the keypad (SK1 + * unlocks) | Same |
+| SK1 + # | Lock the keypad; again while locked: unlock | Same |
 | SK1 + ▲ / ▼ | Scan up / down | Same |
 | SK1 + 1 | APRS on / off | Same |
 | SK1 + 3 | Send an APRS beacon now | Same |
@@ -679,12 +679,11 @@ Once the stock sector is back (a backup written back, for example), it is used a
 ### Keypad lock
 
 - In the main menu, **\*** locks the keypad, **#** locks the PTT (again: unlocks the PTT); the radio goes home.
-- On a main screen, **SK1 held alone** (about half a second, then released) locks the keypad too; Key settings →
-  Lock moves it to other keys. Held with another key (SK1 + ▲ ...) it doesn't lock. SK2 held is a modifier (Delete
-  in the messages, Close in the dual watch) and doesn't lock.
+- On a main screen, **SK1 + #** locks the keypad too; **SK1 + #** again while locked unlocks. Key settings has Lock
+  and Unlock as two rows, each can be set to other keys (both SK1 + # by default).
 - Locking and unlocking show a bubble (a closed / open padlock); while locked an amber padlock stays on the status
-  bar. A key pressed while locked shows "Locked SK1 + * to unlock" again; **SK1 + \*** unlocks (SK2 + \* can't be pressed on the
-  DM-32: a held SK2 hides the keys 1, 4, 7, \*). With only the keypad locked the PTT still transmits.
+  bar. A key pressed while locked shows "Locked SK1 + # to unlock" again (the main firmware's SK2 + \* can't
+  be pressed on the DM-32: a held SK2 hides the keys 1, 4, 7, \*). With only the keypad locked the PTT still transmits.
 - General options → Auto lock: locks the keypad and the PTT after a time without use.
 - While the cable is in use (CPS, firmware update) the radio doesn't lock, and the auto lock time starts again after
   it.
@@ -722,7 +721,8 @@ One row an action with its keys (the defaults: [1](#shortcuts-on-the-main-screen
 `long` after the keys (`SK2+Right long`).
 
 - The menu key on a row, then the new keys: SK1 / SK2 held with another key, a short or a long press, or SK1 or SK2
-  alone. The back key keeps the old keys.
+  alone (short only: held long alone it beeps an error and keeps the old keys). A long press acts at the Key long
+  time, still held. The back key keeps the old keys.
 - The menu key, the back key and the PTT can't be used; ▲ ▼ and the digits only with a side key.
 - Keys that belonged to another action are taken from it (shown).
 - The last row puts the defaults back. Saved when the screen is left.
